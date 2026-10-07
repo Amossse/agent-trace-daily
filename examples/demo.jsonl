@@ -1,0 +1,7 @@
+{"timestamp":"2026-10-06T09:00:00+08:00","session_id":"demo-session","kind":"task","task_id":"study","project":"/workspace/study-demo","text":"Create a fictional study guide","status":"unknown"}
+{"timestamp":"2026-10-06T09:01:00+08:00","session_id":"demo-session","kind":"tool","task_id":"study","project":"/workspace/study-demo","tool":"Read","operation":"read","files":["outline.md"],"status":"succeeded"}
+{"timestamp":"2026-10-06T09:02:00+08:00","session_id":"demo-session","kind":"tool","task_id":"study","project":"/workspace/study-demo","tool":"Write","operation":"write","files":["guide.md"],"status":"succeeded"}
+{"timestamp":"2026-10-06T09:03:00+08:00","session_id":"demo-session","kind":"artifact","task_id":"study","project":"/workspace/study-demo","text":"Study guide draft recorded by the fictional exporter","status":"succeeded"}
+{"timestamp":"2026-10-06T09:04:00+08:00","session_id":"demo-session","kind":"summary","task_id":"study","project":"/workspace/study-demo","text":"Draft completed; learning outcomes have not been evaluated","status":"unknown"}
+{"timestamp":"2026-10-06T10:00:00+08:00","session_id":"demo-session","kind":"task","task_id":"test","project":"/workspace/study-demo","text":"Validate the fictional guide","status":"unknown"}
+{"timestamp":"2026-10-06T10:01:00+08:00","session_id":"demo-session","kind":"tool","task_id":"test","project":"/workspace/study-demo","tool":"Check","operation":"execute","files":[],"status":"failed"}
