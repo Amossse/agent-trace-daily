@@ -14,7 +14,7 @@ import sys
 import tempfile
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-VERSION = "0.1.1"
+VERSION = "0.2.0"
 MAX_LINE = 2 * 1024 * 1024
 KINDS = {"task", "tool", "summary", "artifact"}
 STATUSES = {"succeeded", "failed", "unknown", "attempted"}
@@ -153,7 +153,7 @@ def tool_info(name, args):
     return "other", [], ""
 
 
-def records(path, budget, gaps):
+def records(path, budget, gaps, cursor=None):
     """Stream a stable prefix. A torn last line becomes a coverage gap, not a crash."""
     try:
         path = safe_path(path)
@@ -161,11 +161,15 @@ def records(path, budget, gaps):
             gaps["non_regular_file"] += 1
             return
         size = path.stat().st_size
-        consumed = 0
+        consumed = cursor.get("offset", 0) if cursor is not None else 0
         with path.open("rb") as handle:
-            number = 0
+            handle.seek(consumed)
+            number = cursor.get("line", 0) if cursor is not None else 0
             while consumed < size:
-                raw = handle.readline(min(MAX_LINE + 1, size - consumed))
+                if budget[0] <= 0:
+                    gaps["byte_limit_reached"] += 1
+                    return
+                raw = handle.readline(min(MAX_LINE + 1, size - consumed, budget[0] + 1))
                 if not raw:
                     break
                 number += 1
@@ -174,16 +178,23 @@ def records(path, budget, gaps):
                 if budget[0] < 0:
                     gaps["byte_limit_reached"] += 1
                     return
+                if cursor is not None and not raw.endswith(b"\n") and len(raw) <= MAX_LINE:
+                    gaps["incomplete_last_line"] += 1
+                    return
                 if len(raw) > MAX_LINE:
                     gaps["oversized_line"] += 1
                     while raw and not raw.endswith(b"\n") and consumed < size:
-                        raw = handle.readline(min(MAX_LINE + 1, size - consumed))
+                        raw = handle.readline(min(MAX_LINE + 1, size - consumed, budget[0] + 1))
                         consumed += len(raw)
                         budget[0] -= len(raw)
                         if budget[0] < 0:
                             gaps["byte_limit_reached"] += 1
                             return
+                    if cursor is not None:
+                        cursor.update(offset=consumed, line=number)
                     continue
+                if cursor is not None:
+                    cursor.update(offset=consumed, line=number)
                 try:
                     item = json.loads(raw.decode("utf-8"))
                     if not isinstance(item, dict):
@@ -197,11 +208,18 @@ def records(path, budget, gaps):
         gaps["unreadable_or_unsafe_file"] += 1
 
 
-def normalize(provider, path, source_id, budget, gaps, start=None, end=None):
+def normalize(provider, path, source_id, budget, gaps, start=None, end=None, state=None, keep_text=True):
     scan_gaps = gaps
     session, project, task = "", "", ""
     pending, events, task_texts = {}, [], {}
-    for line, row in records(path, budget, scan_gaps):
+    if state is not None:
+        state.setdefault("offset", 0)
+        state.setdefault("line", 0)
+        session, project, task = state.get("context", ("", "", ""))
+        events = state.setdefault("events", [])
+        task_texts = state.setdefault("task_texts", {})
+        pending = {key: events[index] for key, index in state.get("pending", {}).items()}
+    for line, row in records(path, budget, scan_gaps, state):
         gaps = scan_gaps
         typ = row.get("type", "")
         if not isinstance(typ, str):
@@ -227,7 +245,11 @@ def normalize(provider, path, source_id, budget, gaps, start=None, end=None):
             gaps["invalid_timestamp"] += 1
             continue
         # Timestamped parser gaps concern the report day; undated/I/O gaps concern the scan.
-        if start is not None and not start <= when < end:
+        if state is not None:
+            day = when.astimezone(start.tzinfo).date().isoformat()
+            gaps = Counter(state.setdefault("day_gaps", {}).get(day, {}))
+            state["day_gaps"][day] = gaps
+        elif start is not None and not start <= when < end:
             gaps = Counter()
         session = session or "file:" + str(path)
         event = {"timestamp": when, "session": str(session), "project": str(project),
@@ -304,6 +326,11 @@ def normalize(provider, path, source_id, budget, gaps, start=None, end=None):
         else:
             gaps["unsupported_record"] += 1
         if event["kind"]:
+            if state is not None and keep_text:
+                event["text"] = redact(event["text"])[:1000]
+            if not keep_text:
+                event["identity"] = event["identity"] or hashlib.sha256(event["text"].encode()).hexdigest()
+                event["text"] = ""
             if event["kind"] == "task":
                 task = event["task"] or event["evidence"]
                 if provider != "jsonl":
@@ -325,6 +352,10 @@ def normalize(provider, path, source_id, budget, gaps, start=None, end=None):
                 gaps["opaque_tool_wrapper"] += 1
                 # Static references may be in comments, strings or untaken branches.
                 call["referenced_tools"] = sorted(set(re.findall(r"\btools\.([A-Za-z_$][\w$]*)\s*\(", str(args))))
+            if state is not None and keep_text:
+                call["text"] = redact(call["text"])[:1000]
+            if not keep_text:
+                call["text"] = ""
             events.append(call)
             if call_id:
                 pending[str(call_id)] = call
@@ -336,12 +367,85 @@ def normalize(provider, path, source_id, budget, gaps, start=None, end=None):
                 previous["result_timestamp"] = when
             else:
                 gaps["orphan_tool_result"] += 1
+    if state is not None:
+        state["context"] = [session, project, task]
+        indices = {id(event): index for index, event in enumerate(events)}
+        state["pending"] = {key: indices[id(event)] for key, event in pending.items()}
     for event in events:
         event["task_context"] = task_texts.get(event["task"], "")
     return events
 
 
-def collect(sources, start, end, max_bytes, max_files):
+def prefix_digest(path, size):
+    """Validate exact cached bytes, including in-place edits before an append."""
+    digest = hashlib.sha256()
+    with safe_path(path).open("rb") as handle:
+        remaining = size
+        while remaining:
+            block = handle.read(min(1024 * 1024, remaining))
+            if not block:
+                raise ValueError("source truncated during cache validation")
+            digest.update(block)
+            remaining -= len(block)
+    return digest.hexdigest()
+
+
+def cached_normalize(provider, path, source_id, budget, gaps, start, end, cache_dir, keep_text):
+    key = hashlib.sha256(f"{provider}:{path}:{start.tzinfo}:{keep_text}".encode()).hexdigest()
+    cache_path = safe_path(cache_dir) / (key + ".json")
+    current = path.stat()
+    state = {}
+    verified_bytes = 0
+    try:
+        saved = json.loads(cache_path.read_text())
+        if (saved.get("version") == VERSION and saved.get("identity") == [current.st_dev, current.st_ino]
+                and 0 <= saved["state"]["offset"] <= current.st_size):
+            offset = saved["state"]["offset"]
+            verified_bytes = offset
+            if prefix_digest(path, offset) == saved["digest"]:
+                state = saved["state"]
+                for event in state["events"]:
+                    for field in ("timestamp", "result_timestamp"):
+                        if field in event:
+                            event[field] = stamp(event[field])
+                    for field in ("evidence", "result_evidence"):
+                        if field in event:
+                            event[field] = source_id + ":" + event[field].split(":", 1)[1]
+                # Task IDs based on evidence must also follow the new source alias.
+                mapping = {event["task"]: source_id + ":" + event["task"].split(":", 1)[1]
+                           for event in state["events"] if re.fullmatch(r"S\d+:\d+", event["task"])}
+                for event in state["events"]:
+                    event["task"] = mapping.get(event["task"], event["task"])
+                state["context"][2] = mapping.get(state["context"][2], state["context"][2])
+                state["task_texts"] = {mapping.get(k, k): v for k, v in state["task_texts"].items()}
+    except (OSError, ValueError, KeyError, TypeError):
+        state = {}
+    reused = state.get("offset", 0)
+    if budget[0] <= 0 and not state:
+        gaps["unparsed_files_due_to_budget"] += 1
+        return [], 0, verified_bytes
+    scan_gaps = Counter(state.get("scan_gaps", {}))
+    # Transient limits/torn tails describe this run and must not poison later runs.
+    for name in ("byte_limit_reached", "incomplete_last_line", "source_changed_during_scan"):
+        scan_gaps.pop(name, None)
+    events = normalize(provider, path, source_id, budget, scan_gaps, start, end, state, keep_text)
+    gaps.update(scan_gaps)
+    gaps.update(state.get("day_gaps", {}).get(start.date().isoformat(), {}))
+    state["scan_gaps"] = dict(scan_gaps)
+    after = path.stat()
+    if (current.st_dev, current.st_ino, current.st_size, current.st_mtime_ns, current.st_ctime_ns) == (
+            after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns):
+        # ponytail: rewrite per-file JSON checkpoints; use SQLite if cache size becomes material.
+        saved = {"version": VERSION, "identity": [after.st_dev, after.st_ino],
+                 "digest": prefix_digest(path, state.get("offset", 0)), "state": state}
+        private_write(cache_path, json.dumps(saved, default=lambda value: value.isoformat()), replace=True)
+        verified_bytes += state.get("offset", 0)
+    else:
+        gaps["source_changed_during_scan"] += 1
+    return events, reused, verified_bytes
+
+
+def collect(sources, start, end, max_bytes, max_files, cache_dir=None, keep_text=False):
     gaps, events, seen_files, seen_events, source_table = Counter(), [], set(), {}, []
     budget = [max_bytes]
     candidates = []
@@ -368,7 +472,7 @@ def collect(sources, start, end, max_bytes, max_files):
         identity = str(file)
         if identity in seen_files:
             continue
-        if len(seen_files) >= max_files or budget[0] <= 0:
+        if len(seen_files) >= max_files or (cache_dir is None and budget[0] <= 0):
             gaps["scan_limit_reached"] += 1
             break
         seen_files.add(identity)
@@ -376,9 +480,14 @@ def collect(sources, start, end, max_bytes, max_files):
         source_table.append({"id": source_id, "provider": provider, "location": str(file)})
         # ponytail: per-file buffering joins results; no historical cache until scans require it.
         before = budget[0]
-        normalized = normalize(provider, file, source_id, budget, gaps, start, end)
+        if cache_dir is None:
+            normalized = normalize(provider, file, source_id, budget, gaps, start, end)
+        else:
+            normalized, reused, verified = cached_normalize(provider, file, source_id, budget, gaps, start, end, cache_dir, keep_text)
+            source_table[-1].update(reused_bytes=reused, verified_bytes=verified)
         source_table[-1]["scanned_bytes"] = before - budget[0]
-        for event in normalized:
+        for stored_event in normalized:
+            event = dict(stored_event)
             in_window = start <= event["timestamp"] < end
             result_time = event.get("result_timestamp")
             if not in_window and not (result_time and start <= result_time < end):
@@ -429,7 +538,8 @@ def report(events, gaps, sources, start, end, include_text=False):
         item = {"time": event["timestamp"].astimezone(start.tzinfo).isoformat(),
                 "kind": event["kind"], "task": task, "session": session, "project": project,
                 "status": event["status"], "evidence": event["evidence"],
-                "started_before_window": event["started_before_window"]}
+                "started_before_window": event["started_before_window"],
+                "evidence_level": "claim" if event["kind"] == "summary" else "observation"}
         if event["kind"] in {"task", "summary", "artifact"}:
             item["text"] = redact(event["text"])[:1000] if include_text else "[text omitted; enable --include-text for a private report]"
             if event["kind"] in {"task", "summary"}:
@@ -438,6 +548,7 @@ def report(events, gaps, sources, start, end, include_text=False):
             item.update(tool=redact(event["tool"]), operation=event["operation"], files=[])
             if event.get("referenced_tools"):
                 item["referenced_tools"] = event["referenced_tools"]
+                item["reference_evidence_level"] = "inference"
             if include_text:
                 item["arguments_preview"] = redact(event["text"])[:1000]
             for path in event["files"]:
@@ -450,19 +561,24 @@ def report(events, gaps, sources, start, end, include_text=False):
                 item["files"].append(file_id)
             if event["operation"] == "write" and project in projects:
                 projects[project]["confirmed_writes" if event["status"] == "succeeded" else "attempted_writes"] += 1
+            item["outcome_evidence_level"] = "observation" if event["status"] in {"succeeded", "failed"} else "unknown"
             if "result_evidence" in event:
                 item["result_evidence"] = event["result_evidence"]
                 if "result_timestamp" in event:
                     item["result_time"] = event["result_timestamp"].astimezone(start.tzinfo).isoformat()
         timeline.append(item)
     artifacts = [item for item in timeline if item["kind"] == "artifact"]
-    artifacts += [{"kind": "file-output-candidate", "file": entry["id"], "project": entry["project"]}
+    artifacts += [{"kind": "file-output-candidate", "file": entry["id"], "project": entry["project"], "evidence_level": "inference",
+                   "evidence": [op["evidence"] for op in entry["operations"] if op["operation"] == "write" and op["status"] == "succeeded"]}
                   for entry in files_table.values() if any(op["operation"] == "write" and op["status"] == "succeeded" for op in entry["operations"])]
     visible_sources = [{"id": s["id"], "provider": s["provider"],
                        **({"location": redact(s["location"])} if include_text else {})} for s in sources]
     return {"schema_version": 1, "date": start.date().isoformat(), "window": {"start": start.isoformat(), "end_exclusive": end.isoformat()},
             "coverage": {"status": "partial" if gaps else "within-configured-logs", "gaps": dict(gaps), "sources": visible_sources,
-                         "scan": {"files": len(sources), "bytes": sum(s.get("scanned_bytes", 0) for s in sources)},
+                         "scan": {"files": sum(bool(s.get("scanned_bytes", 0) or s.get("reused_bytes", 0)) for s in sources),
+                                  "visited_files": len(sources), "bytes": sum(s.get("scanned_bytes", 0) for s in sources),
+                                  "reused_bytes": sum(s.get("reused_bytes", 0) for s in sources),
+                                  "verified_bytes": sum(s.get("verified_bytes", 0) for s in sources)},
                          "gap_scope": "timestamped parser gaps: report window; undated/read/budget gaps: entire scan",
                          "limitations": ["Not all agents or ephemeral/cloud sessions are recorded locally.", "Shell/JS tool internals are not executed or inferred as file accesses.", "Assistant summaries are self-reports, not proof of task completion.", "No semantic value or actual saved memory is inferred from file writes."]},
             "counts": {"tasks": len(task_table), "events": len(timeline), "files": len(files_table), "projects": len(projects),
@@ -476,7 +592,9 @@ def markdown(data):
              f"任务 {data['counts']['tasks']}，事件 {data['counts']['events']}，项目 {data['counts']['projects']}，文件 {data['counts']['files']}，失败工具调用 {data['counts']['failed_tools']}。", "", "## 任务与结果", ""]
     if data["coverage"]["status"] == "partial":
         lines.insert(2, "警告：覆盖不完整，以下统计不是全天总量。")
+    lines.insert(4, "证据分层：observation 为日志观察，claim 为 Agent 自述，inference 为推断，unknown 为结果未确认。")
     lines.insert(4, f"扫描 {data['coverage']['scan']['files']} 个文件、{data['coverage']['scan']['bytes']} 字节。带时间戳的解析缺口仅计当日；读取、无时间戳及预算缺口计整个扫描。")
+    lines.insert(5, f"复用已解析日志 {data['coverage']['scan']['reused_bytes']} 字节；另校验历史前缀 {data['coverage']['scan']['verified_bytes']} 字节（仍需磁盘读取，不计新增解析预算）。")
     for task in data["tasks"]:
         lines.append(f"- {task['id']} · {task['session']} · {task['project']} · {task['events']} 个事件")
         if task.get("context") and not task["requests"]:
@@ -589,6 +707,7 @@ def main():
     run.add_argument("--output-dir")
     run.add_argument("--include-text", action="store_true")
     run.add_argument("--replace", action="store_true")
+    run.add_argument("--no-cache", action="store_true", help="disable private incremental checkpoints")
     run.add_argument("--max-bytes", type=int, default=256 * 1024 * 1024)
     run.add_argument("--max-files", type=int, default=10000)
     setup = commands.add_parser("install")
@@ -635,7 +754,12 @@ def main():
         root = Path(__file__).resolve().parents[1]
         if output == root or output.is_relative_to(root):
             raise ValueError("reports must not be written into the Skill/publication directory")
-        events, gaps, inputs = collect(sources, start, end, args.max_bytes, args.max_files)
+        name = start.date().isoformat()
+        if not args.replace and ((output / f"{name}.json").exists() or (output / f"{name}.md").exists()):
+            raise ValueError("daily report exists; review it before using --replace")
+        include_text = args.include_text or config.get("include_text", False)
+        cache_dir = None if args.no_cache else output.parent / "cache"
+        events, gaps, inputs = collect(sources, start, end, args.max_bytes, args.max_files, cache_dir, include_text)
         data = report(events, gaps, inputs, start, end, args.include_text or config.get("include_text", False))
         name = start.date().isoformat()
         json_path, md_path = output / f"{name}.json", output / f"{name}.md"

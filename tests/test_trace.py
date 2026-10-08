@@ -106,6 +106,106 @@ class TraceDaily(unittest.TestCase):
             self.assertEqual(len(events), 2)  # Old mtime does not exclude same-day events.
             self.assertEqual(dict(gaps), {"opaque_tool_wrapper": 1})
 
+    def test_incremental_append_cross_day_and_invalidation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            source, cache = root / "trace.jsonl", root / "cache"
+            rows = [
+                {"timestamp": "2026-10-05T23:00:00Z", "type": "session_meta", "payload": {"id": "demo", "cwd": "/fictional"}},
+                {"timestamp": "2026-10-05T23:01:00Z", "type": "response_item", "payload": {"type": "message", "role": "user", "content": "PRIVATE_TASK_MARKER"}},
+                {"timestamp": "2026-10-05T23:02:00Z", "type": "response_item", "payload": {"type": "function_call", "name": "Read", "call_id": "pending", "arguments": {"path": "notes.md", "secret": "PRIVATE_ARG_MARKER"}}},
+            ]
+            source.write_text("".join(json.dumps(row) + "\n" for row in rows))
+            sources = [f"codex:{source}"]
+            start, end = trace.window("2026-10-05", trace.zone("UTC"))
+            trace.collect(sources, start, end, 100000, 10, cache)
+            saved = next(cache.glob("*.json")).read_text()
+            self.assertNotIn("PRIVATE_TASK_MARKER", saved)
+            self.assertNotIn("PRIVATE_ARG_MARKER", saved)
+            if sys.platform != "win32":
+                self.assertEqual(next(cache.glob("*.json")).stat().st_mode & 0o777, 0o600)
+            result = {"timestamp": "2026-10-06T00:01:00Z", "type": "response_item", "payload": {"type": "function_call_output", "call_id": "pending", "output": {"exit_code": 0}}}
+            appended = json.dumps(result) + "\n"
+            with source.open("a") as handle:
+                handle.write(appended)
+            start, end = trace.window("2026-10-06", trace.zone("UTC"))
+            events, gaps, inputs = trace.collect(sources, start, end, 100000, 10, cache)
+            self.assertEqual(inputs[0]["scanned_bytes"], len(appended.encode()))
+            self.assertGreater(inputs[0]["reused_bytes"], 0)
+            self.assertEqual(len(events), 1)
+            self.assertEqual(events[0]["status"], "succeeded")
+            self.assertTrue(events[0]["started_before_window"])
+            self.assertFalse(gaps)
+            data = trace.report(events, gaps, inputs, start, end)
+            self.assertEqual(data["timeline"][0]["outcome_evidence_level"], "observation")
+            full, full_gaps, _ = trace.collect(sources, start, end, 100000, 10)
+            self.assertEqual([(e["timestamp"], e["status"], e["files"]) for e in events],
+                             [(e["timestamp"], e["status"], e["files"]) for e in full])
+            self.assertEqual(gaps, full_gaps)
+            _, _, inputs = trace.collect(sources, start, end, 100000, 10, cache)
+            self.assertEqual(inputs[0]["scanned_bytes"], 0)
+            # Source aliases can shift when a newer source is discovered.
+            other = root / "newer.jsonl"
+            other.write_text(json.dumps({"timestamp": "2026-10-06T00:00:00Z", "kind": "task", "session_id": "other"}) + "\n")
+            os.utime(source, (1, 1))
+            os.utime(other, (2, 2))
+            shifted, _, _ = trace.collect([f"jsonl:{other}", *sources], start, end, 100000, 10, cache)
+            tool = next(e for e in shifted if e["kind"] == "tool")
+            self.assertEqual(tool["evidence"], "S2:3")
+            self.assertEqual(tool["result_evidence"], "S2:4")
+            self.assertEqual(tool["task"], "S2:2")
+            # Text opt-in has a separate checkpoint and still redacts credential previews.
+            rows[1]["payload"]["content"] = "token=fictionalcredential"
+            text_source = root / "text.jsonl"
+            text_source.write_text("".join(json.dumps(row) + "\n" for row in rows))
+            trace.collect([f"codex:{text_source}"], start, end, 100000, 10, cache, True)
+            self.assertTrue(all("fictionalcredential" not in p.read_text() for p in cache.glob("*.json")))
+            # A same-size prefix edit followed by append must invalidate, not reuse stale success.
+            source.write_text(source.read_text().replace('"exit_code": 0', '"exit_code": 1') + appended)
+            events, _, inputs = trace.collect(sources, start, end, 100000, 10, cache)
+            self.assertEqual(inputs[0]["reused_bytes"], 0)
+            # Truncation also discards cached events and pending calls.
+            source.write_text(json.dumps(result) + "\n")
+            events, gaps, inputs = trace.collect(sources, start, end, 100000, 10, cache)
+            self.assertFalse(events)
+            self.assertEqual(inputs[0]["reused_bytes"], 0)
+            self.assertEqual(gaps["orphan_tool_result"], 1)
+
+    def test_incremental_budget_torn_tail_and_evidence_levels(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            source, cache = root / "demo.jsonl", root / "cache"
+            rows = [
+                {"timestamp": "2026-10-06T01:00:00Z", "kind": "task", "session_id": "demo", "task_id": "one", "text": "fictional"},
+                {"timestamp": "2026-10-06T01:01:00Z", "kind": "summary", "session_id": "demo", "task_id": "one", "text": "done"},
+                {"timestamp": "2026-10-06T01:02:00Z", "kind": "tool", "session_id": "demo", "task_id": "one", "operation": "write", "files": ["demo.md"], "status": "succeeded"},
+            ]
+            lines = [json.dumps(row) + "\n" for row in rows]
+            source.write_text("".join(lines[:2]) + lines[2][:-1])
+            start, end = trace.window("2026-10-06", trace.zone("UTC"))
+            sources = [f"jsonl:{source}"]
+            events, gaps, _ = trace.collect(sources, start, end, len(lines[0]), 10, cache)
+            self.assertEqual(len(events), 1)
+            self.assertIn("byte_limit_reached", gaps)
+            events, gaps, _ = trace.collect(sources, start, end, 100000, 10, cache)
+            self.assertEqual(len(events), 2)
+            self.assertNotIn("byte_limit_reached", gaps)
+            self.assertIn("incomplete_last_line", gaps)
+            with source.open("a") as handle:
+                handle.write("\n")
+            events, gaps, inputs = trace.collect(sources, start, end, 100000, 10, cache)
+            self.assertEqual(len(events), 3)
+            self.assertFalse(gaps)
+            data = trace.report(events, gaps, inputs, start, end)
+            self.assertEqual([e["evidence_level"] for e in data["timeline"]], ["observation", "claim", "observation"])
+            self.assertEqual(data["artifacts"][0]["evidence_level"], "inference")
+            self.assertEqual(data["artifacts"][0]["evidence"], ["S1:3"])
+            # Invalid cache content is safely rebuilt from the source.
+            next(cache.glob("*.json")).write_text("{broken")
+            events, gaps, inputs = trace.collect(sources, start, end, 100000, 10, cache)
+            self.assertEqual(len(events), 3)
+            self.assertEqual(inputs[0]["reused_bytes"], 0)
+
     def test_install_schedule_and_public_demo(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve() / "示例空间"

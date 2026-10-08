@@ -13,3 +13,9 @@
 - Prioritize recently modified logs across sources without excluding old sessions.
 - Scope timestamped parser gaps to the reporting day and recognize current Codex metadata.
 - Show static exec tool references without inferring execution; expose scan totals and partial-coverage warnings.
+
+## 0.2.0
+
+- Add private incremental checkpoints with exact prefix validation, pending-call continuity, safe rebuilds and `--no-cache`.
+- Separate newly parsed, reused and prefix-verification bytes; retry incomplete final lines and resume bounded scans.
+- Label observations, Agent claims, inferences and unknown outcomes; keep structural caches free of task text and arguments.
