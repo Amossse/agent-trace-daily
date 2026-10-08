@@ -80,3 +80,5 @@ python -m unittest discover -s tests -v
 ```
 
 测试只用虚构数据与临时目录。详见 [验证记录](VALIDATION.md)、[安全说明](SECURITY.md)、[贡献说明](CONTRIBUTING.md)、[更新记录](CHANGELOG.md)和 [MIT 许可证](LICENSE)。中英文推广文案在 [LAUNCH.md](LAUNCH.md)，未代发。
+
+扫描先按文件更新时间排序，在所有来源间优先读取近期更新的日志；更新时间仅决定预算分配顺序，不排除旧会话，事件仍按时间戳筛选。覆盖信息区分当日解析缺口和整个扫描的读取、预算缺口，并记录扫描文件数和字节数。functions.exec 内的工具名称仅作为静态引用展示，不证明执行、成功或文件操作。

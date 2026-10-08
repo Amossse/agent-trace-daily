@@ -14,7 +14,7 @@ import sys
 import tempfile
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 MAX_LINE = 2 * 1024 * 1024
 KINDS = {"task", "tool", "summary", "artifact"}
 STATUSES = {"succeeded", "failed", "unknown", "attempted"}
@@ -197,10 +197,12 @@ def records(path, budget, gaps):
         gaps["unreadable_or_unsafe_file"] += 1
 
 
-def normalize(provider, path, source_id, budget, gaps):
+def normalize(provider, path, source_id, budget, gaps, start=None, end=None):
+    scan_gaps = gaps
     session, project, task = "", "", ""
     pending, events, task_texts = {}, [], {}
-    for line, row in records(path, budget, gaps):
+    for line, row in records(path, budget, scan_gaps):
+        gaps = scan_gaps
         typ = row.get("type", "")
         if not isinstance(typ, str):
             gaps["invalid_record_type"] += 1
@@ -224,6 +226,9 @@ def normalize(provider, path, source_id, budget, gaps):
         except (ValueError, OverflowError):
             gaps["invalid_timestamp"] += 1
             continue
+        # Timestamped parser gaps concern the report day; undated/I/O gaps concern the scan.
+        if start is not None and not start <= when < end:
+            gaps = Counter()
         session = session or "file:" + str(path)
         event = {"timestamp": when, "session": str(session), "project": str(project),
                  "task": str(task), "kind": "", "tool": "", "operation": "", "files": [],
@@ -253,6 +258,8 @@ def normalize(provider, path, source_id, budget, gaps):
                 gaps["unsupported_codex_item"] += 1
                 continue
             if kind == "message" and payload.get("role") in {"user", "assistant"}:
+                if payload["role"] == "assistant" and payload.get("phase") == "analysis":
+                    continue
                 event["kind"] = "task" if payload["role"] == "user" else "summary"
                 event["text"] = content_text(payload.get("content", []))
             elif kind in {"function_call", "custom_tool_call"}:
@@ -264,9 +271,18 @@ def normalize(provider, path, source_id, budget, gaps):
             elif kind == "web_search_call":
                 calls = [(payload.get("id"), "web_search", {})]
         elif provider == "codex" and typ == "event_msg":
+            # Completed items can mirror calls already recorded as response_item.
+            if payload.get("type") == "item_completed":
+                item = payload.get("item", {})
+                if not isinstance(item, dict) or (item.get("type") not in {"Reasoning", "AgentMessage", "UserMessage"} and str(item.get("id")) not in pending):
+                    gaps["unsupported_codex_completed_item"] += 1
+                continue
             # user_message/agent_message mirror response_item messages; do not double count.
-            if not isinstance(payload.get("type"), str) or payload.get("type") not in {"user_message", "agent_message", "agent_reasoning", "token_count", "task_started", "task_complete", "turn_aborted", "context_compacted"}:
+            if not isinstance(payload.get("type"), str) or payload.get("type") not in {"user_message", "agent_message", "agent_reasoning", "token_count", "task_started", "task_complete", "turn_aborted", "context_compacted", "thread_settings_applied", "mcp_tool_call_end"}:
                 gaps["unsupported_codex_event"] += 1
+        elif provider == "codex" and typ in {"token_usage_record", "world_state", "compacted"}:
+            # Host metadata/compaction history is not a new user or tool event.
+            continue
         elif provider == "claude" and typ in {"user", "assistant"}:
             message = row.get("message", {})
             content = message.get("content", []) if isinstance(message, dict) else []
@@ -307,6 +323,8 @@ def normalize(provider, path, source_id, budget, gaps):
                             hashlib.sha256(json.dumps(args, sort_keys=True, default=str).encode("utf-8")).hexdigest()))
             if str(name).rsplit(".", 1)[-1] == "exec":
                 gaps["opaque_tool_wrapper"] += 1
+                # Static references may be in comments, strings or untaken branches.
+                call["referenced_tools"] = sorted(set(re.findall(r"\btools\.([A-Za-z_$][\w$]*)\s*\(", str(args))))
             events.append(call)
             if call_id:
                 pending[str(call_id)] = call
@@ -326,6 +344,7 @@ def normalize(provider, path, source_id, budget, gaps):
 def collect(sources, start, end, max_bytes, max_files):
     gaps, events, seen_files, seen_events, source_table = Counter(), [], set(), {}, []
     budget = [max_bytes]
+    candidates = []
     for spec in sources:
         provider, separator, location = spec.partition(":")
         if not separator or not location.strip() or provider not in {"codex", "claude", "jsonl"}:
@@ -334,45 +353,53 @@ def collect(sources, start, end, max_bytes, max_files):
         if not root.exists():
             gaps["missing_source"] += 1
             continue
-        files = [root] if root.is_file() else root.rglob("*.jsonl")
         discovered = False
-        for file in files:
+        for file in ([root] if root.is_file() else root.rglob("*.jsonl")):
             discovered = True
-            identity = str(file)
-            if identity in seen_files:
-                continue
-            if len(seen_files) >= max_files or budget[0] <= 0:
-                gaps["scan_limit_reached"] += 1
-                break
-            seen_files.add(identity)
-            source_id = f"S{len(source_table) + 1}"
-            source_table.append({"id": source_id, "provider": provider, "location": str(file)})
-            # ponytail: per-file buffering joins results; no historical cache until scans require it.
-            normalized = normalize(provider, file, source_id, budget, gaps)
-            for event in normalized:
-                in_window = start <= event["timestamp"] < end
-                result_time = event.get("result_timestamp")
-                if not in_window and not (result_time and start <= result_time < end):
-                    continue
-                # Apply the day boundary before merging copied active/archive evidence.
-                if result_time and result_time >= end:
-                    event["status"] = "attempted"
-                    event.pop("result_evidence", None)
-                # Dedupe copied active/archive logs by semantic event, not filename or mtime.
-                key = (provider, event["session"], event["timestamp"], event["kind"],
-                       event["tool"], event["text"], tuple(event["files"]), event["identity"])
-                prior = seen_events.get(key)
-                if prior and prior["evidence"].split(":")[0] != source_id:
-                    if prior["status"] == "attempted" and event["status"] != "attempted":
-                        prior["status"] = event["status"]
-                        if "result_evidence" in event:
-                            prior["result_evidence"] = event["result_evidence"]
-                    continue
-                seen_events[key] = event
-                event["started_before_window"] = not in_window
-                events.append(event)
+            try:
+                file = safe_path(file)
+                candidates.append((file.stat().st_mtime_ns, provider, file))
+            except (OSError, ValueError):
+                gaps["unreadable_or_unsafe_file"] += 1
         if not discovered:
             gaps["empty_source"] += 1
+    # mtime only prioritizes budget spending, never excludes old/long-running sessions.
+    for _, provider, file in sorted(candidates, key=lambda item: (-item[0], str(item[2]))):
+        identity = str(file)
+        if identity in seen_files:
+            continue
+        if len(seen_files) >= max_files or budget[0] <= 0:
+            gaps["scan_limit_reached"] += 1
+            break
+        seen_files.add(identity)
+        source_id = f"S{len(source_table) + 1}"
+        source_table.append({"id": source_id, "provider": provider, "location": str(file)})
+        # ponytail: per-file buffering joins results; no historical cache until scans require it.
+        before = budget[0]
+        normalized = normalize(provider, file, source_id, budget, gaps, start, end)
+        source_table[-1]["scanned_bytes"] = before - budget[0]
+        for event in normalized:
+            in_window = start <= event["timestamp"] < end
+            result_time = event.get("result_timestamp")
+            if not in_window and not (result_time and start <= result_time < end):
+                continue
+            # Apply the day boundary before merging copied active/archive evidence.
+            if result_time and result_time >= end:
+                event["status"] = "attempted"
+                event.pop("result_evidence", None)
+            # Dedupe copied active/archive logs by semantic event, not filename or mtime.
+            key = (provider, event["session"], event["timestamp"], event["kind"],
+                   event["tool"], event["text"], tuple(event["files"]), event["identity"])
+            prior = seen_events.get(key)
+            if prior and prior["evidence"].split(":")[0] != source_id:
+                if prior["status"] == "attempted" and event["status"] != "attempted":
+                    prior["status"] = event["status"]
+                    if "result_evidence" in event:
+                        prior["result_evidence"] = event["result_evidence"]
+                continue
+            seen_events[key] = event
+            event["started_before_window"] = not in_window
+            events.append(event)
     events.sort(key=lambda e: (e["timestamp"], e["evidence"]))
     return events, gaps, source_table
 
@@ -409,6 +436,8 @@ def report(events, gaps, sources, start, end, include_text=False):
                 task_table[task]["requests" if event["kind"] == "task" else "summaries"].append(item["text"])
         if event["kind"] == "tool":
             item.update(tool=redact(event["tool"]), operation=event["operation"], files=[])
+            if event.get("referenced_tools"):
+                item["referenced_tools"] = event["referenced_tools"]
             if include_text:
                 item["arguments_preview"] = redact(event["text"])[:1000]
             for path in event["files"]:
@@ -433,6 +462,8 @@ def report(events, gaps, sources, start, end, include_text=False):
                        **({"location": redact(s["location"])} if include_text else {})} for s in sources]
     return {"schema_version": 1, "date": start.date().isoformat(), "window": {"start": start.isoformat(), "end_exclusive": end.isoformat()},
             "coverage": {"status": "partial" if gaps else "within-configured-logs", "gaps": dict(gaps), "sources": visible_sources,
+                         "scan": {"files": len(sources), "bytes": sum(s.get("scanned_bytes", 0) for s in sources)},
+                         "gap_scope": "timestamped parser gaps: report window; undated/read/budget gaps: entire scan",
                          "limitations": ["Not all agents or ephemeral/cloud sessions are recorded locally.", "Shell/JS tool internals are not executed or inferred as file accesses.", "Assistant summaries are self-reports, not proof of task completion.", "No semantic value or actual saved memory is inferred from file writes."]},
             "counts": {"tasks": len(task_table), "events": len(timeline), "files": len(files_table), "projects": len(projects),
                        "failed_tools": sum(e["kind"] == "tool" and e["status"] == "failed" for e in timeline)},
@@ -443,6 +474,9 @@ def report(events, gaps, sources, start, end, include_text=False):
 def markdown(data):
     lines = [f"# Agent 执行轨迹日报 · {data['date']}", "", f"覆盖状态：{data['coverage']['status']}。仅覆盖已配置的可读取记录，不等于所有 Agent 的全部行为。", "",
              f"任务 {data['counts']['tasks']}，事件 {data['counts']['events']}，项目 {data['counts']['projects']}，文件 {data['counts']['files']}，失败工具调用 {data['counts']['failed_tools']}。", "", "## 任务与结果", ""]
+    if data["coverage"]["status"] == "partial":
+        lines.insert(2, "警告：覆盖不完整，以下统计不是全天总量。")
+    lines.insert(4, f"扫描 {data['coverage']['scan']['files']} 个文件、{data['coverage']['scan']['bytes']} 字节。带时间戳的解析缺口仅计当日；读取、无时间戳及预算缺口计整个扫描。")
     for task in data["tasks"]:
         lines.append(f"- {task['id']} · {task['session']} · {task['project']} · {task['events']} 个事件")
         if task.get("context") and not task["requests"]:
@@ -466,6 +500,8 @@ def markdown(data):
         details = event.get("tool", event.get("text", ""))
         files = ",".join(event.get("files", []))
         lines.append(f"- {event['time']} · {event['task']} · {event['kind']} · {event['status']} · {details} {files} · {event['evidence']}")
+        if event.get("referenced_tools"):
+            lines.append("  - 静态工具引用（不证明执行或成功）：" + ", ".join(event["referenced_tools"]))
         if event.get("arguments_preview"):
             lines.append(f"  - 脱敏参数摘要：{event['arguments_preview']}")
     lines += ["", "## 覆盖缺口与下一步", ""]

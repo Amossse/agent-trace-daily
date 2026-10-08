@@ -71,6 +71,41 @@ class TraceDaily(unittest.TestCase):
             _, capped, _ = trace.collect([f"codex:{codex}"], start, end, 5, 20)
             self.assertGreater(capped["byte_limit_reached"], 0)
 
+    def test_recent_priority_window_gaps_and_wrapper_evidence(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            old, recent = root / "old.jsonl", root / "recent.jsonl"
+            rows = [
+                {"timestamp": "2026-10-05T01:00:00Z", "type": "event_msg", "payload": {"type": "future_unknown"}},
+                {"timestamp": "2026-10-06T01:00:00Z", "type": "session_meta", "payload": {"id": "fictional", "cwd": "/fictional"}},
+                {"timestamp": "2026-10-06T01:01:00Z", "type": "response_item", "payload": {"type": "function_call", "name": "functions.exec", "call_id": "wrapper", "arguments": 'await tools.apply_patch("fictional patch"); tools.exec_command({cmd: "fictional"});'}},
+                {"timestamp": "2026-10-06T01:02:00Z", "type": "response_item", "payload": {"type": "function_call_output", "call_id": "wrapper", "output": "Script completed"}},
+                {"timestamp": "2026-10-06T01:03:00Z", "type": "token_usage_record", "payload": {}},
+                {"timestamp": "2026-10-06T01:04:00Z", "type": "world_state", "payload": {}},
+                {"timestamp": "2026-10-06T01:05:00Z", "type": "compacted", "payload": {}},
+                {"timestamp": "2026-10-06T01:06:00Z", "type": "event_msg", "payload": {"type": "thread_settings_applied"}},
+            ]
+            recent.write_text("".join(json.dumps(row) + "\n" for row in rows))
+            old.write_text(json.dumps({"timestamp": "2026-10-06T02:00:00Z", "kind": "task", "session_id": "old-session", "text": "fictional"}) + "\n")
+            os.utime(old, (1, 1))
+            os.utime(recent, (2, 2))
+            start, end = trace.window("2026-10-06", trace.zone("UTC"))
+            sources = [f"jsonl:{old}", f"codex:{recent}"]
+            events, gaps, inputs = trace.collect(sources, start, end, recent.stat().st_size, 20)
+            self.assertEqual(len(events), 1)
+            self.assertEqual(inputs[0]["location"], str(recent))
+            self.assertNotIn("unsupported_codex_event", gaps)
+            self.assertEqual(events[0]["referenced_tools"], ["apply_patch", "exec_command"])
+            self.assertEqual(events[0]["status"], "unknown")
+            self.assertEqual(events[0]["files"], [])
+            data = trace.report(events, gaps, inputs, start, end)
+            self.assertEqual(data["coverage"]["scan"]["bytes"], recent.stat().st_size)
+            self.assertIn("不是全天总量", trace.markdown(data))
+            self.assertIn("不证明执行或成功", trace.markdown(data))
+            events, gaps, _ = trace.collect(sources, start, end, 100000, 20)
+            self.assertEqual(len(events), 2)  # Old mtime does not exclude same-day events.
+            self.assertEqual(dict(gaps), {"opaque_tool_wrapper": 1})
+
     def test_install_schedule_and_public_demo(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve() / "示例空间"

@@ -98,3 +98,5 @@ Tests use only fictional temporary traces and temporary installations. They chec
 Source references: [Agent Skills specification](https://agentskills.io/specification), [Codex protocol](https://github.com/openai/codex/blob/main/codex-rs/protocol/src/models.rs), [Claude Code sessions](https://code.claude.com/docs/en/sessions).
 
 Keywords: Agent execution trace, daily report, Agent activity, Agent Skills, Codex, Claude Code, local-first, trajectory, privacy, scheduled reporting.
+
+Scan all sources in descending file modification order to prioritize recent activity under the byte budget; modification time never excludes a session, and event timestamps still select the day. Coverage reports scan file/byte totals and distinguishes day-scoped parser gaps from scan-wide read/budget gaps. Tool names inside functions.exec are static references only, never proof of execution, success or file operations.
