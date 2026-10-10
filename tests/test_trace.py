@@ -206,6 +206,31 @@ class TraceDaily(unittest.TestCase):
             self.assertEqual(len(events), 3)
             self.assertEqual(inputs[0]["reused_bytes"], 0)
 
+    def test_insight_brief_privacy_and_evidence_boundaries(self):
+        start, end = trace.window("2026-10-06", trace.zone("UTC"))
+        events, gaps, sources = trace.collect([f"jsonl:{ROOT / 'examples/demo.jsonl'}"], start, end, 100000, 20)
+        structural = trace.report(events, gaps, sources, start, end)
+        semantic = trace.report(events, gaps, sources, start, end, True)
+        self.assertEqual(structural["insights"]["semantic_analysis_status"], "needs-text-opt-in")
+        self.assertNotIn("Create a fictional study guide", json.dumps(structural["insights"]))
+        self.assertEqual(semantic["insights"]["semantic_analysis_status"], "agent-review-required")
+        self.assertTrue(all(p["business_completion"] == "unknown" for p in semantic["insights"]["progress"]))
+        self.assertFalse(semantic["insights"]["memory_written"])
+        self.assertTrue(semantic["insights"]["knowledge_candidates"])
+        failure = next(item for item in semantic["insights"]["problems"] if item["kind"] == "failed_call")
+        self.assertTrue(failure["evidence"])
+        md = trace.markdown(semantic)
+        self.assertLess(md.index("## 问题洞察"), md.index("## 完整可观察事件序列"))
+        self.assertIn("未独立验证", md)
+        task = semantic["tasks"][0]
+        calls = [{"task": task["id"], "kind": "tool", "status": status, "tool": "demo", "evidence": f"S1:{i}"}
+                 for i, status in enumerate(("failed", "failed", "succeeded"), 1)]
+        brief = trace.insights([task], calls, [], True, True)
+        self.assertEqual(brief["scope"], "partial")
+        self.assertEqual(brief["problems"][0]["kind"], "repeated_failure")
+        self.assertIn("不能确定", brief["problems"][0]["finding"])
+        self.assertFalse(brief["knowledge_candidates"])
+
     def test_install_schedule_and_public_demo(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve() / "示例空间"
