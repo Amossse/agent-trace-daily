@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Measure incremental test budgets and appended bytes from actual files, including Windows CRLF newlines.
+- Add LF/CRLF fixtures with multibyte UTF-8 text to check bounded checkpoint resumption; runtime behavior is unchanged.
+
 ## 0.1.0 - 2026-10-07
 
 - Local Codex, Claude Code and generic JSONL normalization and yesterday reporting.

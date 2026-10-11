@@ -126,11 +126,12 @@ class TraceDaily(unittest.TestCase):
                 self.assertEqual(next(cache.glob("*.json")).stat().st_mode & 0o777, 0o600)
             result = {"timestamp": "2026-10-06T00:01:00Z", "type": "response_item", "payload": {"type": "function_call_output", "call_id": "pending", "output": {"exit_code": 0}}}
             appended = json.dumps(result) + "\n"
+            previous_size = source.stat().st_size
             with source.open("a") as handle:
                 handle.write(appended)
             start, end = trace.window("2026-10-06", trace.zone("UTC"))
             events, gaps, inputs = trace.collect(sources, start, end, 100000, 10, cache)
-            self.assertEqual(inputs[0]["scanned_bytes"], len(appended.encode()))
+            self.assertEqual(inputs[0]["scanned_bytes"], source.stat().st_size - previous_size)
             self.assertGreater(inputs[0]["reused_bytes"], 0)
             self.assertEqual(len(events), 1)
             self.assertEqual(events[0]["status"], "succeeded")
@@ -184,7 +185,9 @@ class TraceDaily(unittest.TestCase):
             source.write_text("".join(lines[:2]) + lines[2][:-1])
             start, end = trace.window("2026-10-06", trace.zone("UTC"))
             sources = [f"jsonl:{source}"]
-            events, gaps, _ = trace.collect(sources, start, end, len(lines[0]), 10, cache)
+            # Byte budgets include the on-disk newline, which is CRLF on Windows.
+            first_line_bytes = len(source.read_bytes().splitlines(keepends=True)[0])
+            events, gaps, _ = trace.collect(sources, start, end, first_line_bytes, 10, cache)
             self.assertEqual(len(events), 1)
             self.assertIn("byte_limit_reached", gaps)
             events, gaps, _ = trace.collect(sources, start, end, 100000, 10, cache)
@@ -205,6 +208,24 @@ class TraceDaily(unittest.TestCase):
             events, gaps, inputs = trace.collect(sources, start, end, 100000, 10, cache)
             self.assertEqual(len(events), 3)
             self.assertEqual(inputs[0]["reused_bytes"], 0)
+
+    def test_incremental_lf_and_crlf_byte_budgets(self):
+        for newline in (b"\n", b"\r\n"):
+            with self.subTest(newline=newline), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary).resolve()
+                source, cache = root / "demo.jsonl", root / "cache"
+                row = {"timestamp": "2026-10-06T01:00:00Z", "kind": "task", "session_id": "demo", "text": "虚构"}
+                line = json.dumps(row, ensure_ascii=False).encode("utf-8") + newline
+                source.write_bytes(line + line)
+                start, end = trace.window("2026-10-06", trace.zone("UTC"))
+                sources = [f"jsonl:{source}"]
+                _, gaps, inputs = trace.collect(sources, start, end, len(line), 10, cache)
+                self.assertIn("byte_limit_reached", gaps)
+                self.assertEqual(inputs[0]["scanned_bytes"], len(line))
+                _, gaps, inputs = trace.collect(sources, start, end, len(line), 10, cache)
+                self.assertFalse(gaps)
+                self.assertEqual(inputs[0]["scanned_bytes"], len(line))
+                self.assertEqual(inputs[0]["reused_bytes"], len(line))
 
     def test_insight_brief_privacy_and_evidence_boundaries(self):
         start, end = trace.window("2026-10-06", trace.zone("UTC"))
