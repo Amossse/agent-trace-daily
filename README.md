@@ -87,7 +87,7 @@ Structural mode is default: aliases replace session/project/file identities and 
 
 POSIX outputs are created as 0600 files; new private directories are 0700. Windows confidentiality depends on directory ACLs. Symlink paths are rejected; use physical paths. This is not a hostile-filesystem sandbox, forensic audit or privacy certification. Markdown/JSON are separate atomic files, not a cross-file transaction; an I/O failure can leave one report file. Existing output is never silently overwritten. No automatic retention deletion.
 
-Default caps: 256 MiB scanned bytes, 10,000 files, 2 MiB per input line. Reaching a cap creates a coverage gap; it is not hidden sampling. Raise `--max-bytes`/`--max-files` deliberately. Per-file buffering joins call/result evidence and can use significant RAM. There is no historical cache, indexing service, duration/cost estimation, or invented token total.
+Default scans cover all configured files and bytes, with a 64 MiB per-record ceiling. Optional `--max-bytes`/`--max-files` create explicit coverage gaps when reached. Per-file buffering joins call/result evidence and can use significant RAM. Private incremental checkpoints are supported; no duration/cost estimates or invented token totals are reported.
 
 ## Test and contribute
 
@@ -109,6 +109,12 @@ Evidence labels distinguish `observation` (recorded event/result), `claim` (Agen
 
 ## Insights, not just log counts
 
-The helper now places goal/outcome evidence briefs, repeated-failure review signals, verification gaps and output-review candidates before the timeline. JSON includes `insights` with explicit analysis and knowledge status. The Skill must turn authorized previews into work progress, concrete next actions and reusable lessons, save a private `<date>.insights.md`, read it back, and link it. A lesson needs its problem, method, applicable conditions, verification limits and evidence IDs; Agent claims and file writes do not establish verified success or knowledge value. Long-term memory is never updated automatically.
+The helper now places goal/outcome evidence briefs, repeated-failure review signals, verification gaps and output-review candidates before the timeline. JSON includes `insights` with explicit analysis and knowledge status. The Skill must turn authorized previews into work progress, concrete next actions and reusable lessons, save a private `<date>.analysis.html`, read it back, and link it. A lesson needs its problem, method, applicable conditions, verification limits and evidence IDs; Agent claims and file writes do not establish verified success or knowledge value. Long-term memory is never updated automatically.
 
 Default structural privacy still hides semantic content. It supports structural failure/verification findings, not meaningful goal or lesson analysis. Explicit `--include-text` enables bounded best-effort-redacted previews; a tool success never becomes business completion, and repeated tool failures do not establish a shared root cause. Counts and the full timeline remain supporting evidence. The helper performs no model/API calls; semantic analysis is the host Agent's job and its provider policies apply.
+
+## Full-source scanning and HTML reports (0.4.0)
+
+Reports now scan all files in the configured sources by default, without the previous 256 MiB and 10,000-file cutoff; explicit --max-bytes/--max-files still enforce opt-in ceilings. No filename or modification-date exclusion is applied. Each JSONL record is limited to 64 MiB; larger records and unknown schemas still report honest gaps. Full initial scans take longer and cache/line memory remains bounded per file, not constant for all normalized events.
+
+Current Codex completed command, file-change and MCP events are parsed and reconciled by call ID. Developer/system instructions are excluded. Opaque JS wrappers remain visible in coverage.opaque_wrappers and limitations, rather than being mislabeled as unreadable records. The helper writes an offline .html analysis brief alongside JSON/Markdown, with escaped text, no remote assets and linked evidence. The host Agent saves its evidence-backed semantic summary via html_report(data, analysis) into a separate private .analysis.html; structural mode cannot invent semantic insights. Existing outputs are never silently overwritten.

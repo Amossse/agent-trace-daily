@@ -33,3 +33,9 @@
 - Put goal/outcome evidence briefs, failure review signals and verification gaps before the timeline.
 - Require the Skill to save evidence-backed work insights and reusable knowledge candidates in private daily insight artifacts.
 - Preserve structural privacy, explicit semantic opt-in, no-overwrite outputs and separate authorization for long-term memory.
+
+## 0.4.0
+
+- Scan the entire configured source scope by default; retain explicit optional ceilings and raise record support to 64 MiB.
+- Parse current Codex completed command/file/MCP records, reconcile call IDs and exclude developer instructions.
+- Generate safe offline HTML analysis briefs and support evidence-backed host analysis in a final .analysis.html.

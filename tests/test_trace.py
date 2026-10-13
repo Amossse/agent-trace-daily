@@ -137,7 +137,7 @@ class TraceDaily(unittest.TestCase):
             self.assertIn("不证明执行或成功", trace.markdown(data))
             events, gaps, _ = trace.collect(sources, start, end, 100000, 20)
             self.assertEqual(len(events), 2)  # Old mtime does not exclude same-day events.
-            self.assertEqual(dict(gaps), {"opaque_tool_wrapper": 1})
+            self.assertEqual(dict(gaps), {})
 
     def test_incremental_append_cross_day_and_invalidation(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -284,6 +284,52 @@ class TraceDaily(unittest.TestCase):
         self.assertEqual(brief["problems"][0]["kind"], "repeated_failure")
         self.assertIn("不能确定", brief["problems"][0]["finding"])
         self.assertFalse(brief["knowledge_candidates"])
+
+    def test_completed_formats_full_scan_and_html_escape(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            source = root / "fixture.jsonl"
+            rows = [
+                {"timestamp": "2026-10-06T00:00:00Z", "type": "response_item", "payload": {"type": "message", "role": "developer", "content": "do not export"}},
+                {"timestamp": "2026-10-06T01:00:00Z", "type": "response_item", "payload": {"type": "message", "role": "user", "content": "<script>alert(1)</script> build a guide"}},
+                {"timestamp": "2026-10-06T01:01:00Z", "type": "response_item", "payload": {"type": "function_call", "call_id": "call1", "name": "exec_command", "arguments": {"cmd": "fictional"}}},
+                {"timestamp": "2026-10-06T01:02:00Z", "type": "event_msg", "payload": {"type": "item_completed", "item": {"type": "CommandExecution", "id": "call1", "exit_code": 0, "status": "completed", "command": "fictional"}}},
+                {"timestamp": "2026-10-06T01:03:00Z", "type": "event_msg", "payload": {"type": "item_completed", "item": {"type": "FileChange", "id": "patch1", "changes": {"guide.md": {"type": "add"}}, "status": "completed"}}},
+                {"timestamp": "2026-10-06T01:04:00Z", "type": "event_msg", "payload": {"type": "item_completed", "item": {"type": "McpToolCall", "id": "mcp1", "server": "demo", "tool": "Read", "arguments": {"path": "guide.md"}, "result": {"isError": False}}}},
+                {"timestamp": "2026-10-06T01:05:00Z", "type": "response_item", "payload": {"type": "agent_message", "text": "draft created, verification pending"}},
+            ]
+            source.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+            start, end = trace.window("2026-10-06", trace.zone("UTC"))
+            events, gaps, inputs = trace.collect([f"codex:{source}"], start, end, sys.maxsize, sys.maxsize)
+            self.assertFalse(gaps)
+            self.assertEqual(len([e for e in events if e["kind"] == "tool"]), 3)
+            self.assertEqual([e["status"] for e in events if e["kind"] == "tool"], ["succeeded"] * 3)
+            data = trace.report(events, gaps, inputs, start, end, True)
+            data["insights"]["progress"][0]["objective"] = "<script>alert(1)</script>"
+            html = trace.html_report(data, [{"title": "总结", "finding": "<img onerror=bad>", "level": "inference", "evidence": ["S1:3"]}])
+            self.assertIn("综合分析已附", html)
+            self.assertNotIn("<img", html)
+            self.assertNotIn("<script>", html)
+            self.assertIn("&lt;script&gt;", html)
+            self.assertNotIn("do not export", html)
+            self.assertIn("知识沉淀候选", html)
+            self.assertIn('href="#e-S1:4"', html)
+            self.assertIn('id="e-S1:4"', html)
+            command = [sys.executable, str(SCRIPT), "report", "--source", f"codex:{source}", "--date", "2026-10-06", "--output-dir", str(root / "reports")]
+            result = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            path = Path(json.loads(result.stdout)["html"])
+            self.assertTrue(path.is_file())
+            self.assertNotIn("build a guide", path.read_text(encoding="utf-8"))
+            if sys.platform != "win32":
+                self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            self.assertNotEqual(subprocess.run(command, capture_output=True).returncode, 0)
+            # A formerly oversized record is parsed, while unknown formats stay visible.
+            row = dict(rows[0], payload={"type": "reasoning", "data": "x" * (2 * 1024 * 1024 + 1)})
+            source.write_text(json.dumps(row) + "\n" + json.dumps(dict(rows[-1], payload={"type": "future_unknown"})) + "\n", encoding="utf-8")
+            _, gaps, _ = trace.collect([f"codex:{source}"], start, end, sys.maxsize, sys.maxsize)
+            self.assertNotIn("oversized_line", gaps)
+            self.assertEqual(gaps["unsupported_codex_item"], 1)
 
     def test_install_schedule_and_public_demo(self):
         with tempfile.TemporaryDirectory() as temporary:

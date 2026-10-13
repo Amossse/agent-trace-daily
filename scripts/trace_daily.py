@@ -4,6 +4,7 @@ import argparse
 from collections import Counter, defaultdict
 from datetime import date, datetime, time, timedelta, timezone
 import hashlib
+from html import escape
 import json
 import os
 from pathlib import Path
@@ -14,8 +15,8 @@ import sys
 import tempfile
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-VERSION = "0.3.1"
-MAX_LINE = 2 * 1024 * 1024
+VERSION = "0.4.0"
+MAX_LINE = 64 * 1024 * 1024
 KINDS = {"task", "tool", "summary", "artifact"}
 STATUSES = {"succeeded", "failed", "unknown", "attempted"}
 
@@ -108,6 +109,8 @@ def success(output, explicit_error=None):
     if isinstance(output, dict):
         if output.get("isError") is True or output.get("error"):
             return "failed"
+        if output.get("isError") is False:
+            return "succeeded"
         if type(output.get("exit_code")) is int:
             return "succeeded" if output["exit_code"] == 0 else "failed"
         return "unknown"
@@ -277,7 +280,11 @@ def normalize(provider, path, source_id, budget, gaps, start=None, end=None, sta
             if not isinstance(kind, str) or not isinstance(payload.get("role", ""), str):
                 gaps["unsupported_codex_item"] += 1
                 continue
-            if kind == "message" and payload.get("role") in {"user", "assistant"}:
+            if kind == "message" and payload.get("role") in {"system", "developer"}:
+                continue
+            if kind == "agent_message":
+                event.update(kind="summary", text=content_text(payload.get("content", payload.get("text", ""))))
+            elif kind == "message" and payload.get("role") in {"user", "assistant"}:
                 if payload["role"] == "assistant" and payload.get("phase") == "analysis":
                     continue
                 event["kind"] = "task" if payload["role"] == "user" else "summary"
@@ -291,14 +298,57 @@ def normalize(provider, path, source_id, budget, gaps, start=None, end=None, sta
             elif kind == "web_search_call":
                 calls = [(payload.get("id"), "web_search", {})]
         elif provider == "codex" and typ == "event_msg":
-            # Completed items can mirror calls already recorded as response_item.
             if payload.get("type") == "item_completed":
                 item = payload.get("item", {})
-                if not isinstance(item, dict) or (item.get("type") not in {"Reasoning", "AgentMessage", "UserMessage"} and str(item.get("id")) not in pending):
+                if not isinstance(item, dict):
                     gaps["unsupported_codex_completed_item"] += 1
-                continue
+                    continue
+                kind, identity = item.get("type"), str(item.get("id", ""))
+                if kind in {"Reasoning", "AgentMessage", "UserMessage", "ContextCompaction"}:
+                    continue  # Messages and reasoning mirror response_item, not new tasks.
+                previous = pending.get(identity)
+                if kind == "FunctionCallOutput":
+                    outputs = [(identity, item.get("output", ""), None)]
+                elif kind in {"CommandExecution", "FileChange", "McpToolCall", "ImageView", "WebSearch", "Extension", "SubAgentActivity", "CollabAgentToolCall"}:
+                    files, operation = [], "other"
+                    name = kind
+                    args = {}
+                    status = "failed" if item.get("status") == "failed" else "unknown"
+                    if kind == "CommandExecution":
+                        operation, name = "execute", "exec_command"
+                        args = {"cmd": item.get("command", "")}
+                        project = item.get("cwd", project) or project
+                        status = success({"exit_code": item.get("exit_code")})
+                        if status == "unknown" and item.get("status") == "failed":
+                            status = "failed"
+                    elif kind == "FileChange":
+                        changes = item.get("changes")
+                        if isinstance(changes, dict) and all(isinstance(k, str) and k.strip() for k in changes):
+                            files, operation, name = list(changes), "write", "apply_patch"
+                        else:
+                            gaps["missing_structured_file_path"] += 1
+                        status = {"completed": "succeeded", "failed": "failed"}.get(item.get("status"), "unknown")
+                    elif kind == "McpToolCall":
+                        name = str(item.get("server", "")) + "." + str(item.get("tool", "unknown"))
+                        args = item.get("arguments", {})
+                        operation, files, _ = tool_info(name, args)
+                        status = success(item.get("result", {}))
+                        if status == "unknown" and item.get("status") == "failed":
+                            status = "failed"
+                    elif kind == "ImageView":
+                        name, operation, files = "view_image", "read", [item.get("path")]
+                    if previous:
+                        previous.update(status=status, result_evidence=event["evidence"], result_timestamp=when)
+                        continue
+                    event.update(kind="tool", tool=name, operation=operation,
+                                 files=[f for f in files if isinstance(f, str) and f], identity=identity,
+                                 project=str(project), status=status, result_evidence=event["evidence"], result_timestamp=when,
+                                 text="[write contents omitted]" if operation == "write" else json.dumps(args, ensure_ascii=False))
+                else:
+                    gaps["unsupported_codex_completed_item"] += 1
+                    continue
             # user_message/agent_message mirror response_item messages; do not double count.
-            if not isinstance(payload.get("type"), str) or payload.get("type") not in {"user_message", "agent_message", "agent_reasoning", "token_count", "task_started", "task_complete", "turn_aborted", "context_compacted", "thread_settings_applied", "mcp_tool_call_end"}:
+            if payload.get("type") != "item_completed" and (not isinstance(payload.get("type"), str) or payload.get("type") not in {"user_message", "agent_message", "agent_reasoning", "token_count", "task_started", "task_complete", "turn_aborted", "context_compacted", "thread_settings_applied", "mcp_tool_call_end"}):
                 gaps["unsupported_codex_event"] += 1
         elif provider == "codex" and typ in {"token_usage_record", "world_state", "compacted"}:
             # Host metadata/compaction history is not a new user or tool event.
@@ -347,7 +397,6 @@ def normalize(provider, path, source_id, budget, gaps, start=None, end=None, sta
                         status="attempted", identity=str(call_id or event["identity"] or
                             hashlib.sha256(json.dumps(args, sort_keys=True, default=str).encode("utf-8")).hexdigest()))
             if str(name).rsplit(".", 1)[-1] == "exec":
-                gaps["opaque_tool_wrapper"] += 1
                 # Static references may be in comments, strings or untaken branches.
                 call["referenced_tools"] = sorted(set(re.findall(r"\btools\.([A-Za-z_$][\w$]*)\s*\(", str(args))))
             if state is not None and keep_text:
@@ -619,6 +668,7 @@ def report(events, gaps, sources, start, end, include_text=False):
                                   "visited_files": len(sources), "bytes": sum(s.get("scanned_bytes", 0) for s in sources),
                                   "reused_bytes": sum(s.get("reused_bytes", 0) for s in sources),
                                   "verified_bytes": sum(s.get("verified_bytes", 0) for s in sources)},
+                         "opaque_wrappers": sum(e["kind"] == "tool" and e["tool"].rsplit(".", 1)[-1] == "exec" for e in timeline),
                          "gap_scope": "timestamped parser gaps: report window; undated/read/budget gaps: entire scan",
                          "limitations": ["Not all agents or ephemeral/cloud sessions are recorded locally.", "Shell/JS tool internals are not executed or inferred as file accesses.", "Assistant summaries are self-reports, not proof of task completion.", "No semantic value or actual saved memory is inferred from file writes."]},
             "counts": {"tasks": len(task_table), "events": len(timeline), "files": len(files_table), "projects": len(projects),
@@ -658,7 +708,7 @@ def markdown(data):
         lines.append(f"- {item['candidate']}：{item['next_step']} 证据：{item['evidence']}")
     if not brief["knowledge_candidates"]:
         lines.append("未识别到明确产出候选；需结合授权的任务语义提炼经验，不能凭日志数量声称已经沉淀知识。")
-    lines.append("候选尚未验证或写入长期记忆。Agent 可将证据支持的分析保存为同日期 .insights.md。")
+    lines.append("候选尚未验证或写入长期记忆。Agent 将证据支持的分析保存为同日期 .analysis.html。")
     lines += ["", "## 项目变更", ""]
     for project in data["projects"]:
         lines.append(f"- {project['id']} {project.get('directory', '')}：确认写入调用 {project['confirmed_writes']}，失败或未确认写入调用 {project['attempted_writes']}。工作目录仅为项目代理标识，不保证 Git 根目录。")
@@ -683,6 +733,58 @@ def markdown(data):
     lines.extend(f"- {reason}" for reason in data["coverage"]["limitations"])
     lines.append("- 修复缺失输入或提高明确的扫描预算后，可用 --date 补跑。先审查私人日报，再决定是否分享；脚本不会上传或删除历史。")
     return "\n".join(lines) + "\n"
+
+
+def html_report(data, analysis=None):
+    """Offline, escaped analysis with evidence drill-down; no scripts or remote assets."""
+    def text(value):
+        return escape(str(value), quote=True)
+    def evidence(refs):
+        if isinstance(refs, str):
+            refs = [refs]
+        return " ".join(f'<a href="#e-{text(ref)}">{text(ref)}</a>' for ref in refs)
+    brief, counts = data["insights"], data["counts"]
+    tools = Counter(e["status"] for e in data["timeline"] if e["kind"] == "tool")
+    parts = ['<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">',
+             '<meta http-equiv="Content-Security-Policy" content="default-src &#39;none&#39;; style-src &#39;unsafe-inline&#39;">',
+             '<title>工作分析日报</title><style>body{font:16px/1.7 system-ui,sans-serif;max-width:1100px;margin:auto;padding:32px;color:#22303b;background:#f6f8fa}h1,h2{line-height:1.3}section,article{background:white;border:1px solid #dae1e7;border-radius:10px;padding:20px;margin:16px 0}small{color:#52616f}table{border-collapse:collapse;width:100%;font-size:14px}td,th{border-bottom:1px solid #ddd;padding:10px;text-align:left;overflow-wrap:anywhere}a{color:#1655a2}p{overflow-wrap:anywhere}.warning{border-left:5px solid #aa6500}details{margin:20px 0}summary{cursor:pointer}span{display:inline-block;margin-right:24px}</style>',
+             f'<h1>{text(data["date"])} · 工作分析日报</h1>',
+             f'<p><span>{counts["tasks"]} 个任务</span><span>{tools["succeeded"]} 次调用成功</span><span>{tools["failed"]} 次失败</span><span>{tools["unknown"] + tools["attempted"]} 次待确认</span></p>',
+             '<section class="warning"><h2>结论与分析边界</h2>',
+             f'<p>覆盖：{text(data["coverage"]["status"])}。成功调用不能证明业务完成；Agent 结果自述须单独验证。</p>',
+             f'<p>观察到 {len(brief["problems"])} 项失败或验证问题，{len(brief["knowledge_candidates"])} 项产出审阅候选。优先复核下方证据；这些信号不能自动证明根因、返工或恢复。</p>']
+    if brief["mode"] == "structural-only":
+        parts.append('<p>任务语义未开放：本报告仅分析结构信号。显式开启 --include-text 后才能分析目标、成果与经验。</p>')
+    parts.append('</section>')
+    if analysis:
+        parts.append('<h2>综合分析与经验总结</h2>')
+        for item in analysis:
+            parts.append(f'<article><h3>{text(item["title"])}</h3><p>{text(item["finding"])}</p><small>证据等级：{text(item["level"])} · {evidence(item["evidence"])}</small></article>')
+    parts.append('<h2>工作进展与结果</h2>')
+    for item in brief["progress"]:
+        parts.append(f'<article><h3>{text(item["task"])} · {text(item["project"])}</h3><p><b>目标：</b>{text(item["objective"])}</p><p><b>结果自述：</b>{text(item["reported_outcome"])}</p><p><b>验证：</b>{text(item["tool_statuses"])}；业务完成尚未验证。</p><small>{evidence(item["evidence"])}</small></article>')
+    parts.append('<h2>问题分析与行动建议</h2>')
+    for item in brief["problems"]:
+        parts.append(f'<article><h3>{text(item["task"])} · {text(item["kind"])}</h3><p>{text(item["finding"])}</p><p><b>下一步：</b>{text(item["next_step"])}</p><small>{evidence(item["evidence"])}</small></article>')
+    if not brief["problems"]:
+        parts.append('<p>已解析证据未发现失败或待确认调用，不代表全部工作正常。</p>')
+    parts.append('<h2>知识沉淀候选</h2>')
+    for item in brief["knowledge_candidates"]:
+        parts.append(f'<article><b>{text(item["candidate"])}</b><p>{text(item["next_step"])}</p><small>{evidence(item["evidence"])}</small></article>')
+    if not brief["knowledge_candidates"]:
+        parts.append('<p>暂无证据充分的产出候选。不能为填充报告而编造经验。</p>')
+    parts.append('<p>候选不等于已验证经验，未自动写入长期记忆。' + ('综合分析已附，推断仍须核验。' if analysis else '语义简报仍需宿主 Agent 分析。') + '</p><h2>扫描范围与缺口</h2>')
+    parts.append(f'<p>{text(data["coverage"]["scan"])}</p>')
+    for name, count in data["coverage"]["gaps"].items():
+        parts.append(f'<p>{text(name)}：{count}</p>')
+    parts.extend(f'<p>{text(item)}</p>' for item in data["coverage"]["limitations"])
+    parts.append('<details><summary>完整证据时间线</summary><table><thead><tr><th>证据</th><th>时间</th><th>任务</th><th>记录</th><th>结果</th></tr></thead><tbody>')
+    for item in data["timeline"]:
+        parts.append(f'<tr id="e-{text(item["evidence"])}"><td>{text(item["evidence"])} {evidence([item["result_evidence"]]) if item.get("result_evidence") else ""}</td><td>{text(item["time"])}</td><td>{text(item["task"])}</td><td>{text(item.get("tool", item.get("text", "")))}</td><td>{text(item["status"])}</td></tr>')
+        if item.get("result_evidence") and item["result_evidence"] != item["evidence"]:
+            parts.append(f'<tr id="e-{text(item["result_evidence"])}"><td colspan="5">结果来源：{text(item["result_evidence"])} → {text(item["evidence"])}</td></tr>')
+    parts.append('</tbody></table></details></html>')
+    return "\n".join(parts)
 
 
 def validate_time(value):
@@ -764,8 +866,8 @@ def main():
     run.add_argument("--include-text", action="store_true")
     run.add_argument("--replace", action="store_true")
     run.add_argument("--no-cache", action="store_true", help="disable private incremental checkpoints")
-    run.add_argument("--max-bytes", type=int, default=256 * 1024 * 1024)
-    run.add_argument("--max-files", type=int, default=10000)
+    run.add_argument("--max-bytes", type=int, default=sys.maxsize)
+    run.add_argument("--max-files", type=int, default=sys.maxsize)
     setup = commands.add_parser("install")
     setup.add_argument("--agent", choices=["codex", "claude", "generic"], required=True)
     setup.add_argument("--skill-dir")
@@ -811,7 +913,7 @@ def main():
         if output == root or output.is_relative_to(root):
             raise ValueError("reports must not be written into the Skill/publication directory")
         name = start.date().isoformat()
-        if not args.replace and ((output / f"{name}.json").exists() or (output / f"{name}.md").exists()):
+        if not args.replace and ((output / f"{name}.json").exists() or (output / f"{name}.md").exists() or (output / f"{name}.html").exists()):
             raise ValueError("daily report exists; review it before using --replace")
         include_text = args.include_text or config.get("include_text", False)
         cache_dir = None if args.no_cache else output.parent / "cache"
@@ -819,13 +921,15 @@ def main():
         data = report(events, gaps, inputs, start, end, args.include_text or config.get("include_text", False))
         name = start.date().isoformat()
         json_path, md_path = output / f"{name}.json", output / f"{name}.md"
+        html_path = output / f"{name}.html"
         # Preflight both to avoid overwriting an older daily report by accident.
-        if not args.replace and (json_path.exists() or md_path.exists()):
+        if not args.replace and (json_path.exists() or md_path.exists() or html_path.exists()):
             raise ValueError("daily report exists; review it before using --replace")
         private_write(json_path, json.dumps(data, ensure_ascii=False, indent=2) + "\n", args.replace)
         private_write(md_path, markdown(data), args.replace)
+        private_write(html_path, html_report(data), args.replace)
         print(json.dumps({"date": name, "coverage": data["coverage"]["status"], "counts": data["counts"],
-                          "gaps": dict(gaps), "markdown": str(md_path), "json": str(json_path)}, ensure_ascii=False, indent=2))
+                          "gaps": dict(gaps), "markdown": str(md_path), "json": str(json_path), "html": str(html_path)}, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":
