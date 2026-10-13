@@ -45,3 +45,8 @@
 - Replace per-task HTML cards with an aggregate dashboard and four accessible offline SVG charts.
 - Separate exact repeated requests, tool frequency and cross-task failure groups; handle empty data without false anomalies.
 - Require cross-task synthesis of reusable experience, process improvements and anomaly solutions with evidence.
+
+## 0.5.1
+
+- Fix squeezed timeline columns with fixed metadata widths, wrapped record content and a keyboard-accessible horizontal scroll region on narrow screens.
+- Format timestamps for reading while preserving full ISO values in time attributes; highlight linked evidence rows.

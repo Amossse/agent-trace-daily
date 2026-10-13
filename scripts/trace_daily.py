@@ -15,7 +15,7 @@ import sys
 import tempfile
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-VERSION = "0.5.0"
+VERSION = "0.5.1"
 CACHE_VERSION = "0.4.0"  # Report layout changes do not invalidate parsed source checkpoints.
 MAX_LINE = 64 * 1024 * 1024
 KINDS = {"task", "tool", "summary", "artifact"}
@@ -794,7 +794,7 @@ def html_report(data, analysis=None):
     total = sum(statuses.values())
     parts = ['<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">',
              '<meta http-equiv="Content-Security-Policy" content="default-src &#39;none&#39;; style-src &#39;unsafe-inline&#39;">',
-             '<title>Agent 工作洞察 Dashboard</title><style>body{font:16px/1.7 system-ui,sans-serif;max-width:1200px;margin:auto;padding:32px;color:#22303b;background:#eef2f5}h1,h2,h3{line-height:1.3}h2{font-size:20px}section,article,.metric{background:white;border:1px solid #d8e1e7;border-radius:12px;padding:22px;margin:12px 0}small{color:#52616f}table{border-collapse:collapse;width:100%;font-size:13px}td,th{border-bottom:1px solid #ddd;padding:10px;text-align:left;overflow-wrap:anywhere}a{color:#1655a2}p{overflow-wrap:anywhere}.grid,.metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.metrics{grid-template-columns:repeat(4,minmax(0,1fr))}.metric b{display:block;font-size:32px;color:#23596a}.metric span{color:#52616f;font-size:14px}.warning{border-left:5px solid #b57c2b}svg{width:100%;height:auto}details{margin:24px 0}summary{cursor:pointer}.badge{font-size:12px;color:#4d6574} @media(max-width:700px){body{padding:14px}.grid{grid-template-columns:1fr}.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}</style></head><body>',
+             '<title>Agent 工作洞察 Dashboard</title><style>body{font:16px/1.7 system-ui,sans-serif;max-width:1200px;margin:auto;padding:32px;color:#22303b;background:#eef2f5}h1,h2,h3{line-height:1.3}h2{font-size:20px}section,article,.metric{background:white;border:1px solid #d8e1e7;border-radius:12px;padding:22px;margin:12px 0}small{color:#52616f}table{border-collapse:collapse;width:100%;font-size:13px}td,th{border-bottom:1px solid #ddd;padding:10px;text-align:left;overflow-wrap:anywhere}a{color:#1655a2}p{overflow-wrap:anywhere}.grid,.metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.metrics{grid-template-columns:repeat(4,minmax(0,1fr))}.metric b{display:block;font-size:32px;color:#23596a}.metric span{color:#52616f;font-size:14px}.warning{border-left:5px solid #b57c2b}svg{width:100%;height:auto}details{margin:24px 0}summary{cursor:pointer}.badge{font-size:12px;color:#4d6574}.table-scroll{overflow-x:auto;margin-top:16px;background:white;border:1px solid #d8e1e7;border-radius:10px}.timeline{table-layout:fixed;min-width:760px}.timeline td,.timeline th{vertical-align:top}.timeline td:nth-child(1),.timeline td:nth-child(2),.timeline td:nth-child(4),.timeline th{white-space:nowrap;overflow-wrap:normal}.timeline td:nth-child(3){white-space:normal;overflow-wrap:anywhere}.timeline time{font-variant-numeric:tabular-nums}.timeline a{display:inline-block}.timeline tr:target{background:#fff3d6} @media(max-width:700px){body{padding:14px}.grid{grid-template-columns:1fr}.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}</style></head><body>',
              f'<small>LOCAL · {text(data["date"])} · 配置内可观察记录</small><h1>Agent 工作洞察 Dashboard</h1><p>从全部任务中寻找重复模式、可复用经验和流程改进机会。</p><div class="metrics">']
     for label, value in [('任务 / 项目', f'{counts["tasks"]} / {counts["projects"]}'), ('工具调用', total), ('失败记录', failed), ('待确认结果', unknown)]:
         parts.append(f'<div class="metric"><b>{text(value)}</b><span>{text(label)}</span></div>')
@@ -832,7 +832,7 @@ def html_report(data, analysis=None):
     parts.append(f'<p>{text(scan)}；复杂包装调用：{data["coverage"].get("opaque_wrappers", 0)}</p>')
     parts.extend(f'<p>{text(name)}：{count}</p>' for name, count in data['coverage']['gaps'].items())
     parts.extend(f'<p>{text(item)}</p>' for item in data['coverage']['limitations'])
-    parts.append('</details><details><summary>完整证据时间线（审阅附录）</summary><table><thead><tr><th>证据</th><th>时间</th><th>记录</th><th>结果</th></tr></thead><tbody>')
+    parts.append('</details><details><summary>完整证据时间线（审阅附录）</summary><div class="table-scroll" role="region" aria-label="完整证据时间线，可横向滚动" tabindex="0"><table class="timeline"><colgroup><col style="width:145px"><col style="width:190px"><col><col style="width:112px"></colgroup><thead><tr><th>证据</th><th>时间</th><th>记录</th><th>结果</th></tr></thead><tbody>')
     anchors = set()
     def anchor(ref):
         if ref in anchors:
@@ -840,10 +840,12 @@ def html_report(data, analysis=None):
         anchors.add(ref)
         return f' id="e-{text(ref)}"'
     for item in data['timeline']:
-        parts.append(f'<tr{anchor(item["evidence"])}><td>{text(item["evidence"])} {evidence([item["result_evidence"]]) if item.get("result_evidence") else ""}</td><td>{text(item["time"])}</td><td>{text(item.get("tool", item.get("text", "")))}</td><td>{text(item["status"])}</td></tr>')
+        when = stamp(item["time"])
+        display_time = when.strftime("%Y-%m-%d") + "<br>" + when.strftime("%H:%M:%S %z")
+        parts.append(f'<tr{anchor(item["evidence"])}><td>{text(item["evidence"])}<br>{evidence([item["result_evidence"]]) if item.get("result_evidence") else ""}</td><td><time datetime="{text(item["time"])}" title="{text(item["time"])}">{display_time}</time></td><td>{text(item.get("tool", item.get("text", "")))}</td><td>{text(item["status"])}</td></tr>')
         if item.get('result_evidence') and item['result_evidence'] != item['evidence']:
             parts.append(f'<tr{anchor(item["result_evidence"])}><td colspan="4">结果来源：{text(item["result_evidence"])} → {text(item["evidence"])}</td></tr>')
-    parts.append('</tbody></table></details></body></html>')
+    parts.append('</tbody></table></div></details></body></html>')
     return "\n".join(parts)
 
 
