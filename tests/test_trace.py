@@ -310,7 +310,7 @@ class TraceDaily(unittest.TestCase):
             self.assertIn("综合分析已附", html)
             self.assertNotIn("<img", html)
             self.assertNotIn("<script>", html)
-            self.assertIn("&lt;script&gt;", html)
+            self.assertIn("&lt;img onerror=bad&gt;", html)
             self.assertNotIn("do not export", html)
             self.assertIn("知识沉淀候选", html)
             self.assertIn('href="#e-S1:4"', html)
@@ -330,6 +330,28 @@ class TraceDaily(unittest.TestCase):
             _, gaps, _ = trace.collect([f"codex:{source}"], start, end, sys.maxsize, sys.maxsize)
             self.assertNotIn("oversized_line", gaps)
             self.assertEqual(gaps["unsupported_codex_item"], 1)
+
+    def test_cross_task_dashboard_patterns_and_empty_charts(self):
+        start, end = trace.window("2026-10-06", trace.zone("UTC"))
+        events, gaps, sources = trace.collect([f"jsonl:{ROOT / 'examples/demo.jsonl'}"], start, end, 100000, 20)
+        data = trace.report(events, gaps, sources, start, end, True)
+        task = dict(data["insights"]["progress"][0], task="extra")
+        data["insights"]["progress"].append(task)
+        aggregate = trace.dashboard(data)
+        self.assertEqual(len(aggregate["repeated_requests"]), 1)
+        self.assertEqual(aggregate["repeated_requests"][0]["count"], 2)
+        self.assertTrue(all(item["failed"] > 0 for item in aggregate["anomalies"]))
+        self.assertEqual(sum(aggregate["hours"].values()), sum(aggregate["statuses"].values()))
+        html = trace.html_report(data)
+        self.assertEqual(html.count('<svg '), 4)
+        self.assertIn('role="img"', html)
+        self.assertNotIn('工作进展与结果', html)
+        self.assertNotIn('<h3>T1', html)
+        data["privacy"] = "structural-only"
+        self.assertFalse(trace.dashboard(data)["repeated_requests"])
+        empty = trace.report([], {}, [], start, end)
+        self.assertIn('未观察到相关记录', trace.html_report(empty))
+        self.assertFalse(trace.dashboard(empty)["anomalies"])
 
     def test_install_schedule_and_public_demo(self):
         with tempfile.TemporaryDirectory() as temporary:

@@ -39,3 +39,9 @@
 - Scan the entire configured source scope by default; retain explicit optional ceilings and raise record support to 64 MiB.
 - Parse current Codex completed command/file/MCP records, reconcile call IDs and exclude developer instructions.
 - Generate safe offline HTML analysis briefs and support evidence-backed host analysis in a final .analysis.html.
+
+## 0.5.0
+
+- Replace per-task HTML cards with an aggregate dashboard and four accessible offline SVG charts.
+- Separate exact repeated requests, tool frequency and cross-task failure groups; handle empty data without false anomalies.
+- Require cross-task synthesis of reusable experience, process improvements and anomaly solutions with evidence.
