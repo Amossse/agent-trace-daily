@@ -16,6 +16,39 @@ spec.loader.exec_module(trace)
 
 
 class TraceDaily(unittest.TestCase):
+    def test_exit_code_requires_an_integer_not_boolean(self):
+        for code in (False, True, 0.0, "0", None):
+            with self.subTest(code=code):
+                self.assertEqual(trace.success({"exit_code": code}), "unknown")
+                self.assertEqual(trace.success(json.dumps({"exit_code": code})), "unknown")
+        self.assertEqual(trace.success({"exit_code": 0}), "succeeded")
+        self.assertEqual(trace.success({"exit_code": 1}), "failed")
+        self.assertEqual(trace.success("Process exited with code 0"), "succeeded")
+        for text in ("Process exited with code 0.5", "exit_code: 0e1"):
+            self.assertEqual(trace.success(text), "unknown")
+        self.assertEqual(trace.success({"exit_code": False}, False), "succeeded")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source, cache = root / "trace.jsonl", root / "cache"
+            rows = [
+                {"timestamp": "2026-10-06T01:00:00Z", "type": "response_item", "payload": {
+                    "type": "function_call", "name": "exec_command", "call_id": "demo", "arguments": {}}},
+                {"timestamp": "2026-10-06T01:01:00Z", "type": "response_item", "payload": {
+                    "type": "function_call_output", "call_id": "demo", "output": {"exit_code": False}}},
+            ]
+            source.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+            start, end = trace.window("2026-10-06", trace.zone("UTC"))
+            events, _, _ = trace.collect([f"codex:{source}"], start, end, 100000, 10, cache)
+            self.assertEqual(events[0]["status"], "unknown")
+            checkpoint = next(cache.glob("*.json"))
+            saved = json.loads(checkpoint.read_text(encoding="utf-8"))
+            saved["version"] = "0.3.0"
+            saved["state"]["events"][0]["status"] = "succeeded"
+            checkpoint.write_text(json.dumps(saved), encoding="utf-8")
+            events, _, inputs = trace.collect([f"codex:{source}"], start, end, 100000, 10, cache)
+            self.assertEqual(events[0]["status"], "unknown")
+            self.assertEqual(inputs[0]["reused_bytes"], 0)
+
     def test_calendar_window(self):
         tz = trace.zone("America/New_York")
         start, end = trace.window("2026-03-08", tz)

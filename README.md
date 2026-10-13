@@ -54,6 +54,8 @@ The scheduler calculates yesterday at runtime, using local-calendar midnight bou
 
 ## What the report means
 
+Exit-code evidence requires an integer. Boolean, float or string exit codes remain unknown unless a separate explicit result flag establishes the outcome. Version 0.3.1 rebuilds older checkpoints using this rule; previously generated reports are not rewritten.
+
 | Section | Evidence boundary |
 |---|---|
 | Tasks and outcomes | User requests and Agent self-reports; self-report is not verification |

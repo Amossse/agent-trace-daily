@@ -14,7 +14,7 @@ import sys
 import tempfile
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 MAX_LINE = 2 * 1024 * 1024
 KINDS = {"task", "tool", "summary", "artifact"}
 STATUSES = {"succeeded", "failed", "unknown", "attempted"}
@@ -108,19 +108,17 @@ def success(output, explicit_error=None):
     if isinstance(output, dict):
         if output.get("isError") is True or output.get("error"):
             return "failed"
-        if isinstance(output.get("exit_code"), int):
+        if type(output.get("exit_code")) is int:
             return "succeeded" if output["exit_code"] == 0 else "failed"
         return "unknown"
     text = content_text(output)
     try:
         parsed = json.loads(text)
         if isinstance(parsed, dict):
-            result = success(parsed)
-            if result != "unknown":
-                return result
+            return success(parsed)
     except (ValueError, TypeError):
         pass
-    match = re.search(r"(?:Process exited with code|exit_code[\"']?\s*:)\s*(-?\d+)", text)
+    match = re.search(r"(?:Process exited with code|exit_code[\"']?\s*:)\s*(-?\d+)(?![\w.])", text)
     if match:
         return "succeeded" if int(match[1]) == 0 else "failed"
     if text.startswith("Success. Updated the following files:"):

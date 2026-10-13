@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Require integer exit codes; booleans, floats and strings remain unknown instead of becoming success/failure claims. Parsed JSON objects do not fall back to textual exit-code guessing.
+- Bump the helper version to 0.3.1 so checkpoints rebuild under the corrected result rules; existing reports remain untouched. No new release is published.
+
 - Measure incremental test budgets and appended bytes from actual files, including Windows CRLF newlines.
 - Add LF/CRLF fixtures with multibyte UTF-8 text to check bounded checkpoint resumption; runtime behavior is unchanged.
 
