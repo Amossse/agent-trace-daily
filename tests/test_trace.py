@@ -16,6 +16,29 @@ spec.loader.exec_module(trace)
 
 
 class TraceDaily(unittest.TestCase):
+    def test_non_text_patch_is_a_gap_not_a_report_crash(self):
+        for value in (None, 42, [], {}):
+            with self.subTest(value=value):
+                self.assertEqual(trace.tool_info("apply_patch", {"patch": value})[:2], ("write", []))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source = root / "trace.jsonl"
+            rows = [
+                {"timestamp": "2026-10-06T01:00:00Z", "type": "response_item", "payload": {
+                    "type": "function_call", "name": "apply_patch", "call_id": "demo", "arguments": {"patch": None}}},
+                {"timestamp": "2026-10-06T01:01:00Z", "type": "response_item", "payload": {
+                    "type": "message", "role": "user", "content": "fictional follow-up"}},
+                {"timestamp": "2026-10-06T01:02:00Z", "type": "event_msg", "payload": {
+                    "type": "item_completed", "item": {"type": "McpToolCall", "id": "mcp-demo",
+                    "server": "fictional", "tool": "apply_patch", "arguments": {"patch": []}, "result": {}}}},
+            ]
+            source.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+            start, end = trace.window("2026-10-06", trace.zone("UTC"))
+            events, gaps, inputs = trace.collect([f"codex:{source}"], start, end, 100000, 10, root / "cache")
+            self.assertEqual(len(events), 3)
+            self.assertEqual(gaps["missing_structured_file_path"], 2)
+            self.assertEqual(trace.report(events, gaps, inputs, start, end)["coverage"]["status"], "partial")
+
     def test_exit_code_requires_an_integer_not_boolean(self):
         for code in (False, True, 0.0, "0", None):
             with self.subTest(code=code):

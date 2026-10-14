@@ -54,6 +54,8 @@ The scheduler calculates yesterday at runtime, using local-calendar midnight bou
 
 ## What the report means
 
+Non-text patch arguments become an explicit missing-file-path coverage gap instead of stopping the report. No changed file is inferred from them, and later valid events are still processed.
+
 Exit-code evidence requires an integer. Boolean, float or string exit codes remain unknown unless a separate explicit result flag establishes the outcome. Version 0.3.1 rebuilds older checkpoints using this rule; previously generated reports are not rewritten.
 
 | Section | Evidence boundary |

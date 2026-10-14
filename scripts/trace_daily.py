@@ -16,7 +16,7 @@ import tempfile
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 VERSION = "0.5.1"
-CACHE_VERSION = "0.4.0"  # Report layout changes do not invalidate parsed source checkpoints.
+CACHE_VERSION = "0.4.1"  # Report layout changes do not invalidate parsed source checkpoints.
 MAX_LINE = 64 * 1024 * 1024
 KINDS = {"task", "tool", "summary", "artifact"}
 STATUSES = {"succeeded", "failed", "unknown", "attempted"}
@@ -149,6 +149,8 @@ def tool_info(name, args):
             return "execute", [], ""
     if short == "apply_patch":
         patch = args.get("patch", args.get("input", "")) if isinstance(args, dict) else str(args)
+        if not isinstance(patch, str):
+            return "write", [], ""
         files = re.findall(r"^\*\*\* (?:Add|Update|Delete|Move to) File: (.+)$", patch, re.M)
         files += re.findall(r"^\*\*\* Move to: (.+)$", patch, re.M)
         return "write", files, ""
@@ -333,6 +335,8 @@ def normalize(provider, path, source_id, budget, gaps, start=None, end=None, sta
                         name = str(item.get("server", "")) + "." + str(item.get("tool", "unknown"))
                         args = item.get("arguments", {})
                         operation, files, _ = tool_info(name, args)
+                        if operation in {"read", "write"} and (not files or any(not isinstance(p, str) or not p.strip() for p in files)):
+                            gaps["missing_structured_file_path"] += 1
                         status = success(item.get("result", {}))
                         if status == "unknown" and item.get("status") == "failed":
                             status = "failed"

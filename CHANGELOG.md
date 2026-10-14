@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Treat non-text patch arguments as a missing-file-path coverage gap instead of crashing the entire report; valid later events remain available.
+- Cover both tool-call and completed MCP envelopes; parser cache version 0.4.1 rebuilds older checkpoints so missing-path gaps are not hidden. Report layout and source data remain unchanged.
+
 - Require integer exit codes; booleans, floats and strings remain unknown instead of becoming success/failure claims. Parsed JSON objects do not fall back to textual exit-code guessing.
 - Bump the helper version to 0.3.1 so checkpoints rebuild under the corrected result rules; existing reports remain untouched. No new release is published.
 
