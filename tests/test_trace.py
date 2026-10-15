@@ -16,6 +16,29 @@ spec.loader.exec_module(trace)
 
 
 class TraceDaily(unittest.TestCase):
+    def test_unpaired_surrogates_are_gaps_and_later_events_survive(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source = root / "trace.jsonl"
+            rows = [
+                {"timestamp": "2026-10-06T01:00:00Z", "type": "response_item", "payload": {
+                    "type": "message", "role": "user", "content": "\ud800"}},
+                {"timestamp": "2026-10-06T01:01:00Z", "type": "response_item", "payload": {
+                    "type": "function_call", "name": "read_file", "call_id": "fictional",
+                    "arguments": {"path": "\udfff"}}},
+                {"timestamp": "2026-10-06T01:02:00Z", "type": "response_item", "payload": {
+                    "type": "message", "role": "user", "content": "Fictional note \U0001f4da"}},
+            ]
+            source.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+            start, end = trace.window("2026-10-06", trace.zone("UTC"))
+            for keep_text in (False, True):
+                for _ in range(2):
+                    events, gaps, inputs = trace.collect([f"codex:{source}"], start, end, 100000, 10,
+                                                        root / str(keep_text), keep_text=keep_text)
+                    self.assertEqual(len(events), 1)
+                    self.assertEqual(gaps["invalid_json_or_encoding"], 2)
+                    self.assertEqual(trace.report(events, gaps, inputs, start, end)["coverage"]["status"], "partial")
+
     def test_non_text_patch_is_a_gap_not_a_report_crash(self):
         for value in (None, 42, [], {}):
             with self.subTest(value=value):

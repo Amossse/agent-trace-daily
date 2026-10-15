@@ -16,7 +16,7 @@ import tempfile
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 VERSION = "0.5.1"
-CACHE_VERSION = "0.4.1"  # Report layout changes do not invalidate parsed source checkpoints.
+CACHE_VERSION = "0.4.2"  # Report layout changes do not invalidate parsed source checkpoints.
 MAX_LINE = 64 * 1024 * 1024
 KINDS = {"task", "tool", "summary", "artifact"}
 STATUSES = {"succeeded", "failed", "unknown", "attempted"}
@@ -203,6 +203,18 @@ def records(path, budget, gaps, cursor=None):
                     item = json.loads(raw.decode("utf-8"))
                     if not isinstance(item, dict):
                         raise ValueError("not an object")
+                    # Escaped lone surrogates decode as JSON strings but cannot be
+                    # hashed, cached or written as UTF-8. Reject before changing context.
+                    pending = [item]
+                    while pending:
+                        value = pending.pop()
+                        if isinstance(value, str):
+                            value.encode("utf-8")
+                        elif isinstance(value, dict):
+                            pending.extend(value.keys())
+                            pending.extend(value.values())
+                        elif isinstance(value, list):
+                            pending.extend(value)
                     yield number, item
                 except (ValueError, UnicodeError, RecursionError):
                     gaps["invalid_json_or_encoding"] += 1

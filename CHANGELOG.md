@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Treat escaped unpaired Unicode surrogates as encoding coverage gaps before normalization, preserving later valid records in both privacy modes. Refresh parser checkpoints with version 0.4.2; existing reports stay unchanged.
+
 - Treat non-text patch arguments as a missing-file-path coverage gap instead of crashing the entire report; valid later events remain available.
 - Cover both tool-call and completed MCP envelopes; parser cache version 0.4.1 rebuilds older checkpoints so missing-path gaps are not hidden. Report layout and source data remain unchanged.
 
