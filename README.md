@@ -99,6 +99,7 @@ python -m unittest discover -s tests -v
 
 Tests use only fictional temporary traces and temporary installations. They check DST, date boundaries, parsers, deduplication, failed/late results, privacy mode, budgets, installation handoff, schedule-state attestation and no-overwrite behavior. Timer-state tests do **not** create real timers. See [validation](VALIDATION.md), [security](SECURITY.md), [contributing](CONTRIBUTING.md), [changelog](CHANGELOG.md), [MIT license](LICENSE) and [unposted bilingual launch drafts](LAUNCH.md).
 JSON strings with unpaired Unicode surrogates become encoding coverage gaps, not a whole-report crash. Valid later events survive in structural and text modes; parser checkpoints rebuild under version 0.4.2 without rewriting old reports.
+Wrong checkpoint object types, incomplete context arrays and excessive JSON nesting trigger a source rebuild. This recovery repairs only the cache; it does not modify logs or old reports.
 
 Source references: [Agent Skills specification](https://agentskills.io/specification), [Codex protocol](https://github.com/openai/codex/blob/main/codex-rs/protocol/src/models.rs), [Claude Code sessions](https://code.claude.com/docs/en/sessions).
 

@@ -16,6 +16,28 @@ spec.loader.exec_module(trace)
 
 
 class TraceDaily(unittest.TestCase):
+    def test_structurally_corrupt_checkpoints_rebuild_from_source(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source = root / "trace.jsonl"
+            source.write_text(json.dumps({"timestamp": "2026-10-06T01:00:00Z", "type": "response_item",
+                                         "payload": {"type": "message", "role": "user", "content": "fictional task"}})
+                              + "\n", encoding="utf-8")
+            start, end = trace.window("2026-10-06", trace.zone("UTC"))
+            sources = [f"codex:{source}"]
+            cache = root / "cache"
+            trace.collect(sources, start, end, 100000, 10, cache)
+            checkpoint = next(cache.glob("*.json"))
+            saved = json.loads(checkpoint.read_text(encoding="utf-8"))
+            saved["state"]["context"] = []
+            for raw in ("[]", json.dumps(saved), "[" * 5000 + "]" * 5000):
+                with self.subTest(shape=raw[:20]):
+                    checkpoint.write_text(raw, encoding="utf-8")
+                    events, gaps, inputs = trace.collect(sources, start, end, 100000, 10, cache)
+                    self.assertEqual(len(events), 1)
+                    self.assertFalse(gaps)
+                    self.assertEqual(inputs[0]["reused_bytes"], 0)
+
     def test_unpaired_surrogates_are_gaps_and_later_events_survive(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()

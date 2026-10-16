@@ -482,7 +482,8 @@ def cached_normalize(provider, path, source_id, budget, gaps, start, end, cache_
                     event["task"] = mapping.get(event["task"], event["task"])
                 state["context"][2] = mapping.get(state["context"][2], state["context"][2])
                 state["task_texts"] = {mapping.get(k, k): v for k, v in state["task_texts"].items()}
-    except (OSError, ValueError, KeyError, TypeError):
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, IndexError, RecursionError):
+        # A checkpoint is disposable acceleration, never the only source of evidence.
         state = {}
     reused = state.get("offset", 0)
     if budget[0] <= 0 and not state:
