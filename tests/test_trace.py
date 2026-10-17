@@ -16,6 +16,26 @@ spec.loader.exec_module(trace)
 
 
 class TraceDaily(unittest.TestCase):
+    def test_corrupt_pending_indices_rebuild_instead_of_crashing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source = root / "trace.jsonl"
+            row = {"timestamp": "2026-10-06T01:00:00Z", "type": "response_item", "payload": {
+                "type": "function_call", "call_id": "fictional-call", "name": "exec_command", "arguments": {}}}
+            source.write_text(json.dumps(row) + "\n", encoding="utf-8")
+            start, end = trace.window("2026-10-06", trace.zone("UTC"))
+            cache = root / "cache"
+            trace.collect([f"codex:{source}"], start, end, 100000, 10, cache)
+            checkpoint = next(cache.glob("*.json"))
+            saved = json.loads(checkpoint.read_text(encoding="utf-8"))
+            for index in (999, -1, True, "0"):
+                saved["state"]["pending"]["fictional-call"] = index
+                checkpoint.write_text(json.dumps(saved), encoding="utf-8")
+                events, gaps, inputs = trace.collect([f"codex:{source}"], start, end, 100000, 10, cache)
+                self.assertEqual(len(events), 1)
+                self.assertFalse(gaps)
+                self.assertEqual(inputs[0]["reused_bytes"], 0)
+
     def test_structurally_corrupt_checkpoints_rebuild_from_source(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()

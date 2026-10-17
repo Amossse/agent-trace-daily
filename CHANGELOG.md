@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Validate pending-call checkpoint indices before reuse; out-of-range, negative, boolean and non-integer indices rebuild from source instead of crashing or linking the wrong event.
+
 - Rebuild checkpoints after wrong object types, incomplete context arrays or excessive JSON nesting instead of crashing report generation; source logs and prior reports remain unchanged.
 
 - Treat escaped unpaired Unicode surrogates as encoding coverage gaps before normalization, preserving later valid records in both privacy modes. Refresh parser checkpoints with version 0.4.2; existing reports stay unchanged.

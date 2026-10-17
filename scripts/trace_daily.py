@@ -468,6 +468,10 @@ def cached_normalize(provider, path, source_id, budget, gaps, start, end, cache_
             verified_bytes = offset
             if prefix_digest(path, offset) == saved["digest"]:
                 state = saved["state"]
+                for index in state.get("pending", {}).values():
+                    if (type(index) is not int or not 0 <= index < len(state["events"])
+                            or state["events"][index].get("kind") != "tool"):
+                        raise ValueError("invalid pending event index")
                 for event in state["events"]:
                     for field in ("timestamp", "result_timestamp"):
                         if field in event:
