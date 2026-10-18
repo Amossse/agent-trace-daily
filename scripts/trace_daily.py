@@ -102,7 +102,7 @@ def content_text(content):
     return ""
 
 
-def success(output, explicit_error=None):
+def success(output, explicit_error=None, gaps=None):
     if explicit_error is True:
         return "failed"
     if explicit_error is False:
@@ -119,7 +119,12 @@ def success(output, explicit_error=None):
     try:
         parsed = json.loads(text)
         if isinstance(parsed, dict):
-            return success(parsed)
+            return success(parsed, gaps=gaps)
+    except RecursionError:
+        # Do not infer success from exit-code text inside an unparseable envelope.
+        if gaps is not None:
+            gaps["unreadable_tool_result_json"] += 1
+        return "unknown"
     except (ValueError, TypeError):
         pass
     match = re.search(r"(?:Process exited with code|exit_code[\"']?\s*:)\s*(-?\d+)(?![\w.])", text)
@@ -349,7 +354,7 @@ def normalize(provider, path, source_id, budget, gaps, start=None, end=None, sta
                         operation, files, _ = tool_info(name, args)
                         if operation in {"read", "write"} and (not files or any(not isinstance(p, str) or not p.strip() for p in files)):
                             gaps["missing_structured_file_path"] += 1
-                        status = success(item.get("result", {}))
+                        status = success(item.get("result", {}), gaps=gaps)
                         if status == "unknown" and item.get("status") == "failed":
                             status = "failed"
                     elif kind == "ImageView":
@@ -426,7 +431,7 @@ def normalize(provider, path, source_id, budget, gaps, start=None, end=None, sta
         for call_id, output, error in outputs:
             previous = pending.get(str(call_id))
             if previous:
-                previous["status"] = success(output, error)
+                previous["status"] = success(output, error, gaps)
                 previous["result_evidence"] = event["evidence"]
                 previous["result_timestamp"] = when
             else:

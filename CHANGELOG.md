@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Keep reports running when a tool-result string contains excessively nested JSON. Record an unreadable-result gap, leave its outcome unknown instead of inferring a nested exit code, and preserve later records with and without checkpoints.
+
 - Validate pending-call checkpoint indices before reuse; out-of-range, negative, boolean and non-integer indices rebuild from source instead of crashing or linking the wrong event.
 
 - Rebuild checkpoints after wrong object types, incomplete context arrays or excessive JSON nesting instead of crashing report generation; source logs and prior reports remain unchanged.
