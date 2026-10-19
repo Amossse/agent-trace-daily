@@ -126,6 +126,8 @@ Current Codex completed command, file-change and MCP events are parsed and recon
 
 ## Cross-task dashboard (0.5.0)
 
+Excessively nested JSON in tool arguments records `unreadable_tool_arguments_json`, leaves file paths unconfirmed and continues scanning later events. Coverage is partial. The regression includes regular tool calls, completed MCP calls and checkpoint reuse; it does not claim full real execution coverage.
+
 Excessively nested JSON inside a tool-result string without an explicit status is an `unreadable_tool_result_json` gap. Its outcome stays unknown, later records remain available, and coverage is partial; the helper does not infer success from an exit code buried in the unparseable result. Regression checks cover uncached, newly cached and reused-checkpoint scans.
 
 The HTML report leads with four accessible offline SVG charts: outcome distribution, frequent operations, failure distribution and hourly activity. It removes per-task analysis cards. Exact repeated redacted requests are counted separately from tool frequency; neither proves waste or semantic equivalence. The host Agent summarizes reusable methods, repeated work and process improvements, and anomalous cases/solutions across all selected tasks. Evidence remains in a collapsed appendix. No costs, durations, efficiency scores or savings are invented.

@@ -137,12 +137,16 @@ def success(output, explicit_error=None, gaps=None):
     return "unknown"
 
 
-def tool_info(name, args):
+def tool_info(name, args, gaps=None):
     """Only structured file operations are confirmed; shell paths are not guessed."""
     short = name.rsplit(".", 1)[-1]
     if isinstance(args, str):
         try:
             args = json.loads(args)
+        except RecursionError:
+            if gaps is not None:
+                gaps["unreadable_tool_arguments_json"] += 1
+            return "other", [], ""
         except ValueError:
             pass
     if isinstance(args, dict):
@@ -351,7 +355,7 @@ def normalize(provider, path, source_id, budget, gaps, start=None, end=None, sta
                     elif kind == "McpToolCall":
                         name = str(item.get("server", "")) + "." + str(item.get("tool", "unknown"))
                         args = item.get("arguments", {})
-                        operation, files, _ = tool_info(name, args)
+                        operation, files, _ = tool_info(name, args, gaps)
                         if operation in {"read", "write"} and (not files or any(not isinstance(p, str) or not p.strip() for p in files)):
                             gaps["missing_structured_file_path"] += 1
                         status = success(item.get("result", {}), gaps=gaps)
@@ -409,7 +413,7 @@ def normalize(provider, path, source_id, budget, gaps, start=None, end=None, sta
                 task_texts[task] = event["text"]
             events.append(event)
         for call_id, name, args in calls:
-            operation, files, _ = tool_info(str(name), args)
+            operation, files, _ = tool_info(str(name), args, gaps)
             if operation in {"read", "write"} and (not files or any(not isinstance(p, str) or not p.strip() for p in files)):
                 gaps["missing_structured_file_path"] += 1
             call = dict(event, kind="tool", task=task, tool=str(name), operation=operation,

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Treat excessively nested tool-argument JSON as an unreadable-arguments gap instead of crashing. Preserve following events without guessing file paths; cover regular and completed MCP calls in uncached and checkpoint scans.
+
 - Keep reports running when a tool-result string contains excessively nested JSON. Record an unreadable-result gap, leave its outcome unknown instead of inferring a nested exit code, and preserve later records with and without checkpoints.
 
 - Validate pending-call checkpoint indices before reuse; out-of-range, negative, boolean and non-integer indices rebuild from source instead of crashing or linking the wrong event.

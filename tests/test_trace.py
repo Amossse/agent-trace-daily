@@ -16,6 +16,30 @@ spec.loader.exec_module(trace)
 
 
 class TraceDaily(unittest.TestCase):
+    def test_deep_tool_arguments_are_gaps_and_do_not_stop_following_events(self):
+        nested = '[' * 100000 + '"fictional"' + ']' * 100000
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source = root / "trace.jsonl"
+            rows = [
+                {"timestamp": "2026-10-06T01:00:00Z", "type": "response_item", "payload": {
+                    "type": "function_call", "name": "read_file", "call_id": "fictional", "arguments": nested}},
+                {"timestamp": "2026-10-06T01:01:00Z", "type": "event_msg", "payload": {
+                    "type": "item_completed", "item": {"type": "McpToolCall", "id": "fictional-mcp",
+                    "server": "fictional", "tool": "read_file", "arguments": nested, "result": {}}}},
+                {"timestamp": "2026-10-06T01:02:00Z", "type": "response_item", "payload": {
+                    "type": "message", "role": "user", "content": "Fictional follow-up"}},
+            ]
+            source.write_text(''.join(json.dumps(row) + '\n' for row in rows), encoding="utf-8")
+            start, end = trace.window("2026-10-06", trace.zone("UTC"))
+            for cache in (None, root / "cache", root / "cache"):
+                events, gaps, inputs = trace.collect([f"codex:{source}"], start, end, 1000000, 10, cache)
+                self.assertEqual(len(events), 3)
+                self.assertEqual(events[-1]["kind"], "task")
+                self.assertTrue(all(not event["files"] for event in events))
+                self.assertEqual(gaps["unreadable_tool_arguments_json"], 2)
+                self.assertEqual(trace.report(events, gaps, inputs, start, end)["coverage"]["status"], "partial")
+
     def test_deeply_nested_tool_result_is_unknown_and_later_records_survive(self):
         # A shallow JSONL envelope can contain JSON deeper than the decoder accepts.
         nested = '[' * 100000 + '{"exit_code":0}' + ']' * 100000
