@@ -126,6 +126,8 @@ Current Codex completed command, file-change and MCP events are parsed and recon
 
 ## Cross-task dashboard (0.5.0)
 
+Source JSONL records with duplicate fields, including nested role fields, are rejected as `invalid_json_or_encoding` gaps instead of using the last value. Later records still scan and coverage is partial. Parser checkpoint version 0.4.3 rebuilds older caches so ambiguous records are not silently reused; source logs and existing reports are not modified. This does not validate JSON encoded inside tool-argument or result strings.
+
 Excessively nested JSON in tool arguments records `unreadable_tool_arguments_json`, leaves file paths unconfirmed and continues scanning later events. Coverage is partial. The regression includes regular tool calls, completed MCP calls and checkpoint reuse; it does not claim full real execution coverage.
 
 Excessively nested JSON inside a tool-result string without an explicit status is an `unreadable_tool_result_json` gap. Its outcome stays unknown, later records remain available, and coverage is partial; the helper does not infer success from an exit code buried in the unparseable result. Regression checks cover uncached, newly cached and reused-checkpoint scans.

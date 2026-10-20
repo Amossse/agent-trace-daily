@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Reject duplicate JSON fields at every object depth in source JSONL records instead of silently reinterpreting roles/types. Mark rejected records as invalid-JSON gaps, preserve later events, and bump the parser checkpoint version so legacy caches rebuild. Source logs and prior reports remain unchanged.
+
 - Treat excessively nested tool-argument JSON as an unreadable-arguments gap instead of crashing. Preserve following events without guessing file paths; cover regular and completed MCP calls in uncached and checkpoint scans.
 
 - Keep reports running when a tool-result string contains excessively nested JSON. Record an unreadable-result gap, leave its outcome unknown instead of inferring a nested exit code, and preserve later records with and without checkpoints.

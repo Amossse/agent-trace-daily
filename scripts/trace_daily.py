@@ -16,7 +16,7 @@ import tempfile
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 VERSION = "0.5.1"
-CACHE_VERSION = "0.4.2"  # Report layout changes do not invalidate parsed source checkpoints.
+CACHE_VERSION = "0.4.3"  # Duplicate-field records must be reparsed, not reused from older checkpoints.
 MAX_LINE = 64 * 1024 * 1024
 KINDS = {"task", "tool", "summary", "artifact"}
 STATUSES = {"succeeded", "failed", "unknown", "attempted"}
@@ -166,6 +166,15 @@ def tool_info(name, args, gaps=None):
     return "other", [], ""
 
 
+def unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON field")
+        result[key] = value
+    return result
+
+
 def records(path, budget, gaps, cursor=None):
     """Stream a stable prefix. A torn last line becomes a coverage gap, not a crash."""
     try:
@@ -209,7 +218,7 @@ def records(path, budget, gaps, cursor=None):
                 if cursor is not None:
                     cursor.update(offset=consumed, line=number)
                 try:
-                    item = json.loads(raw.decode("utf-8"))
+                    item = json.loads(raw.decode("utf-8"), object_pairs_hook=unique_object)
                     if not isinstance(item, dict):
                         raise ValueError("not an object")
                     # Escaped lone surrogates decode as JSON strings but cannot be
