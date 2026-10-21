@@ -16,7 +16,7 @@ import tempfile
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 VERSION = "0.5.1"
-CACHE_VERSION = "0.4.3"  # Duplicate-field records must be reparsed, not reused from older checkpoints.
+CACHE_VERSION = "0.4.4"  # Reparse ambiguous embedded JSON instead of reusing guessed files/outcomes.
 MAX_LINE = 64 * 1024 * 1024
 KINDS = {"task", "tool", "summary", "artifact"}
 STATUSES = {"succeeded", "failed", "unknown", "attempted"}
@@ -117,10 +117,10 @@ def success(output, explicit_error=None, gaps=None):
         return "unknown"
     text = content_text(output)
     try:
-        parsed = json.loads(text)
+        parsed = json.loads(text, object_pairs_hook=unique_object)
         if isinstance(parsed, dict):
             return success(parsed, gaps=gaps)
-    except RecursionError:
+    except (DuplicateFieldError, RecursionError):
         # Do not infer success from exit-code text inside an unparseable envelope.
         if gaps is not None:
             gaps["unreadable_tool_result_json"] += 1
@@ -142,8 +142,8 @@ def tool_info(name, args, gaps=None):
     short = name.rsplit(".", 1)[-1]
     if isinstance(args, str):
         try:
-            args = json.loads(args)
-        except RecursionError:
+            args = json.loads(args, object_pairs_hook=unique_object)
+        except (DuplicateFieldError, RecursionError):
             if gaps is not None:
                 gaps["unreadable_tool_arguments_json"] += 1
             return "other", [], ""
@@ -166,11 +166,15 @@ def tool_info(name, args, gaps=None):
     return "other", [], ""
 
 
+class DuplicateFieldError(ValueError):
+    """Ambiguous JSON must not fall back to heuristic argument/result parsing."""
+
+
 def unique_object(pairs):
     result = {}
     for key, value in pairs:
         if key in result:
-            raise ValueError("duplicate JSON field")
+            raise DuplicateFieldError("duplicate JSON field")
         result[key] = value
     return result
 

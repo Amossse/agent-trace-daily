@@ -16,6 +16,44 @@ spec.loader.exec_module(trace)
 
 
 class TraceDaily(unittest.TestCase):
+    def test_duplicate_embedded_tool_fields_do_not_invent_files_or_success(self):
+        arguments = '{"path":"fictional-a.md","path":"fictional-b.md"}'
+        result = '{"exit_code":1,"exit_code":0}'
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source = root / "trace.jsonl"
+            rows = [
+                {"timestamp": "2026-10-06T01:00:00Z", "type": "response_item", "payload": {
+                    "type": "function_call", "name": "read_file", "call_id": "fictional", "arguments": arguments}},
+                {"timestamp": "2026-10-06T01:01:00Z", "type": "response_item", "payload": {
+                    "type": "function_call_output", "call_id": "fictional", "output": result}},
+                {"timestamp": "2026-10-06T01:02:00Z", "type": "event_msg", "payload": {
+                    "type": "item_completed", "item": {"type": "McpToolCall", "id": "fictional-mcp",
+                    "server": "fictional", "tool": "read_file", "arguments": arguments, "result": result}}},
+                {"timestamp": "2026-10-06T01:03:00Z", "type": "response_item", "payload": {
+                    "type": "message", "role": "user", "content": "Fictional follow-up"}},
+            ]
+            source.write_text(''.join(json.dumps(row) + '\n' for row in rows), encoding="utf-8")
+            start, end = trace.window("2026-10-06", trace.zone("UTC"))
+            cache = root / "cache"
+            for destination in (None, cache, cache):
+                events, gaps, inputs = trace.collect([f"codex:{source}"], start, end, 100000, 10, destination)
+                self.assertEqual(len(events), 3)
+                self.assertTrue(all(not event["files"] for event in events))
+                self.assertEqual([event["status"] for event in events[:2]], ["unknown", "unknown"])
+                self.assertEqual(gaps["unreadable_tool_arguments_json"], 2)
+                self.assertEqual(gaps["unreadable_tool_result_json"], 2)
+                self.assertEqual(events[-1]["kind"], "task")
+                self.assertEqual(trace.report(events, gaps, inputs, start, end)["coverage"]["status"], "partial")
+            checkpoint = next(cache.glob("*.json"))
+            legacy = json.loads(checkpoint.read_text(encoding="utf-8"))
+            legacy["version"] = "0.4.3"
+            legacy["state"]["day_gaps"] = {}
+            checkpoint.write_text(json.dumps(legacy), encoding="utf-8")
+            _, gaps, inputs = trace.collect([f"codex:{source}"], start, end, 100000, 10, cache)
+            self.assertEqual(gaps["unreadable_tool_result_json"], 2)
+            self.assertEqual(inputs[0]["reused_bytes"], 0)
+
     def test_duplicate_record_fields_are_gaps_not_reinterpreted_evidence(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
