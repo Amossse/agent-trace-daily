@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Keep parsed non-object result JSON unknown rather than interpreting its nested text as exit evidence. Preserve explicit host status, plain shell text and object-result handling; cover uncached/new/reused scans and rebuild older checkpoints with parser version 0.4.5.
+
 - Reject duplicate fields inside embedded tool-argument/result JSON without falling back to guessed paths or exit codes. Record unreadable-tool gaps, preserve later events, and rebuild older checkpoints with parser version 0.4.4. Cover ordinary and completed MCP calls with uncached/new/reused checkpoints; explicit host status remains separate evidence.
 
 - Reject duplicate JSON fields at every object depth in source JSONL records instead of silently reinterpreting roles/types. Mark rejected records as invalid-JSON gaps, preserve later events, and bump the parser checkpoint version so legacy caches rebuild. Source logs and prior reports remain unchanged.

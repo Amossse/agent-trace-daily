@@ -16,7 +16,7 @@ import tempfile
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 VERSION = "0.5.1"
-CACHE_VERSION = "0.4.4"  # Reparse ambiguous embedded JSON instead of reusing guessed files/outcomes.
+CACHE_VERSION = "0.4.5"  # Reparse non-object result JSON rather than reusing textual outcome guesses.
 MAX_LINE = 64 * 1024 * 1024
 KINDS = {"task", "tool", "summary", "artifact"}
 STATUSES = {"succeeded", "failed", "unknown", "attempted"}
@@ -120,6 +120,8 @@ def success(output, explicit_error=None, gaps=None):
         parsed = json.loads(text, object_pairs_hook=unique_object)
         if isinstance(parsed, dict):
             return success(parsed, gaps=gaps)
+        # Parsed arrays/scalars are data, not a supported result envelope or shell transcript.
+        return "unknown"
     except (DuplicateFieldError, RecursionError):
         # Do not infer success from exit-code text inside an unparseable envelope.
         if gaps is not None:

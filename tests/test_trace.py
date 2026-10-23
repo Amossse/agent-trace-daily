@@ -16,6 +16,39 @@ spec.loader.exec_module(trace)
 
 
 class TraceDaily(unittest.TestCase):
+    def test_non_object_result_json_is_not_textual_exit_evidence(self):
+        for value in ([{"exit_code": 0}], ["Process exited with code 1"], "Process exited with code 0"):
+            with self.subTest(value=value):
+                self.assertEqual(trace.success(json.dumps(value)), "unknown")
+                self.assertEqual(trace.success(json.dumps(value), explicit_error=False), "succeeded")
+        self.assertEqual(trace.success('Process exited with code 0'), "succeeded")
+        self.assertEqual(trace.success('{"exit_code":1}'), "failed")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source = root / "trace.jsonl"
+            rows = [
+                {"timestamp": "2026-10-06T01:00:00Z", "type": "response_item", "payload": {
+                    "type": "function_call", "name": "exec_command", "call_id": "fictional", "arguments": {}}},
+                {"timestamp": "2026-10-06T01:01:00Z", "type": "response_item", "payload": {
+                    "type": "function_call_output", "call_id": "fictional", "output": '[{"exit_code":0}]'}},
+                {"timestamp": "2026-10-06T01:02:00Z", "type": "response_item", "payload": {
+                    "type": "message", "role": "user", "content": "Fictional follow-up"}},
+            ]
+            source.write_text(''.join(json.dumps(row) + '\n' for row in rows), encoding="utf-8")
+            start, end = trace.window("2026-10-06", trace.zone("UTC"))
+            cache = root / "cache"
+            for destination in (None, cache, cache):
+                events, _, _ = trace.collect([f"codex:{source}"], start, end, 100000, 10, destination)
+                self.assertEqual(events[0]["status"], "unknown")
+                self.assertEqual(events[1]["kind"], "task")
+            checkpoint = next(cache.glob("*.json"))
+            legacy = json.loads(checkpoint.read_text(encoding="utf-8"))
+            legacy["version"] = "0.4.4"
+            checkpoint.write_text(json.dumps(legacy), encoding="utf-8")
+            events, _, inputs = trace.collect([f"codex:{source}"], start, end, 100000, 10, cache)
+            self.assertEqual(events[0]["status"], "unknown")
+            self.assertEqual(inputs[0]["reused_bytes"], 0)
+
     def test_duplicate_embedded_tool_fields_do_not_invent_files_or_success(self):
         arguments = '{"path":"fictional-a.md","path":"fictional-b.md"}'
         result = '{"exit_code":1,"exit_code":0}'
