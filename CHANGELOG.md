@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Validate completed Codex item types before set-based dispatch so malformed arrays/objects become unsupported-item gaps instead of aborting reports. Preserve following events and partial coverage; cover uncached/new/reused/legacy-version scans and bump the checkpoint parser to 0.4.6.
+
 - Keep parsed non-object result JSON unknown rather than interpreting its nested text as exit evidence. Preserve explicit host status, plain shell text and object-result handling; cover uncached/new/reused scans and rebuild older checkpoints with parser version 0.4.5.
 
 - Reject duplicate fields inside embedded tool-argument/result JSON without falling back to guessed paths or exit codes. Record unreadable-tool gaps, preserve later events, and rebuild older checkpoints with parser version 0.4.4. Cover ordinary and completed MCP calls with uncached/new/reused checkpoints; explicit host status remains separate evidence.

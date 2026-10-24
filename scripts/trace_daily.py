@@ -16,7 +16,7 @@ import tempfile
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 VERSION = "0.5.1"
-CACHE_VERSION = "0.4.5"  # Reparse non-object result JSON rather than reusing textual outcome guesses.
+CACHE_VERSION = "0.4.6"  # Completed-item type validation must not reuse older parser checkpoints.
 MAX_LINE = 64 * 1024 * 1024
 KINDS = {"task", "tool", "summary", "artifact"}
 STATUSES = {"succeeded", "failed", "unknown", "attempted"}
@@ -343,6 +343,9 @@ def normalize(provider, path, source_id, budget, gaps, start=None, end=None, sta
                     gaps["unsupported_codex_completed_item"] += 1
                     continue
                 kind, identity = item.get("type"), str(item.get("id", ""))
+                if not isinstance(kind, str):
+                    gaps["unsupported_codex_completed_item"] += 1
+                    continue
                 if kind in {"Reasoning", "AgentMessage", "UserMessage", "ContextCompaction"}:
                     continue  # Messages and reasoning mirror response_item, not new tasks.
                 previous = pending.get(identity)
