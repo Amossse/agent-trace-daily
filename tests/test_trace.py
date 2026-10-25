@@ -16,6 +16,37 @@ spec.loader.exec_module(trace)
 
 
 class TraceDaily(unittest.TestCase):
+    def test_non_text_file_change_status_keeps_paths_but_not_success(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source = root / "trace.jsonl"
+            rows = [{"timestamp": "2026-10-06T01:00:00Z", "type": "event_msg", "payload": {
+                "type": "item_completed", "item": {"type": "FileChange", "id": f"fictional-{index}",
+                "changes": {"fictional.md": {}}, "status": status}}}
+                for index, status in enumerate(([], {}, True, 42))]
+            rows.append({"timestamp": "2026-10-06T01:01:00Z", "type": "response_item", "payload": {
+                "type": "message", "role": "user", "content": "Fictional follow-up"}})
+            source.write_text(''.join(json.dumps(row) + '\n' for row in rows), encoding="utf-8")
+            start, end = trace.window("2026-10-06", trace.zone("UTC"))
+            cache = root / "cache"
+            for destination in (None, cache, cache):
+                events, gaps, inputs = trace.collect([f"codex:{source}"], start, end, 100000, 10, destination)
+                self.assertEqual(len(events), 5)
+                self.assertTrue(all(e["status"] == "unknown" and e["files"] == ["fictional.md"]
+                                    for e in events[:4]))
+                self.assertEqual(events[-1]["kind"], "task")
+                self.assertEqual(gaps["invalid_tool_status"], 4)
+                self.assertEqual(trace.report(events, gaps, inputs, start, end)["coverage"]["status"], "partial")
+            self.assertGreater(inputs[0]["reused_bytes"], 0)
+            checkpoint = next(cache.glob("*.json"))
+            legacy = json.loads(checkpoint.read_text(encoding="utf-8"))
+            legacy["version"] = "0.4.6"
+            legacy["state"]["day_gaps"] = {}
+            checkpoint.write_text(json.dumps(legacy), encoding="utf-8")
+            _, gaps, inputs = trace.collect([f"codex:{source}"], start, end, 100000, 10, cache)
+            self.assertEqual(inputs[0]["reused_bytes"], 0)
+            self.assertEqual(gaps["invalid_tool_status"], 4)
+
     def test_completed_item_type_must_be_text_before_dispatch(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()

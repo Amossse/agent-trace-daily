@@ -16,7 +16,7 @@ import tempfile
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 VERSION = "0.5.1"
-CACHE_VERSION = "0.4.6"  # Completed-item type validation must not reuse older parser checkpoints.
+CACHE_VERSION = "0.4.7"  # File-change status validation must rebuild older parser checkpoints.
 MAX_LINE = 64 * 1024 * 1024
 KINDS = {"task", "tool", "summary", "artifact"}
 STATUSES = {"succeeded", "failed", "unknown", "attempted"}
@@ -369,7 +369,12 @@ def normalize(provider, path, source_id, budget, gaps, start=None, end=None, sta
                             files, operation, name = list(changes), "write", "apply_patch"
                         else:
                             gaps["missing_structured_file_path"] += 1
-                        status = {"completed": "succeeded", "failed": "failed"}.get(item.get("status"), "unknown")
+                        raw_status = item.get("status")
+                        if raw_status is not None and not isinstance(raw_status, str):
+                            gaps["invalid_tool_status"] += 1
+                            status = "unknown"
+                        else:
+                            status = {"completed": "succeeded", "failed": "failed"}.get(raw_status, "unknown")
                     elif kind == "McpToolCall":
                         name = str(item.get("server", "")) + "." + str(item.get("tool", "unknown"))
                         args = item.get("arguments", {})

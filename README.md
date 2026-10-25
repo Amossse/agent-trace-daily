@@ -1,5 +1,7 @@
 # Agent Trace Daily
 
+Completed Codex `FileChange` records with non-null, non-text status retain their structured path candidates but have an unknown outcome and an `invalid_tool_status` gap. Later events remain available and coverage is partial. Parser checkpoint version 0.4.7 rebuilds older caches; source logs and existing reports are unchanged. A recorded path does not prove a successful write.
+
 [中文](README.zh-CN.md)
 
 A portable Skill that reports yesterday's recorded Agent work: requests, tool executions, working directories, evidenced file operations, output candidates, failures, and a complete **normalized observable timeline**. A bundled Python helper makes collection reproducible; the Agent explains the results without replaying logged commands.
@@ -126,7 +128,7 @@ Current Codex completed command, file-change and MCP events are parsed and recon
 
 ## Cross-task dashboard (0.5.0)
 
-Completed Codex items require a text type discriminator before dispatch. Non-text types become `unsupported_codex_completed_item` gaps rather than crashing the report; later records survive, and coverage is partial. Checkpoint version 0.4.6 reparses older caches. Regression checks cover uncached, newly cached, reused and legacy-version scans without touching source logs or prior reports.
+Completed Codex items require a text type discriminator before dispatch. Non-text types become `unsupported_codex_completed_item` gaps rather than crashing the report; later records survive, and coverage is partial. Checkpoint version 0.4.7 reparses older caches. Regression checks cover uncached, newly cached, reused and legacy-version scans without touching source logs or prior reports.
 
 Valid JSON arrays/scalars inside a tool-result string are not supported result envelopes and remain unknown without explicit host status. Do not infer an exit code from their contents. Plain shell transcripts and object results retain their existing rules. Older cached outcomes rebuild; source logs and prior reports stay unchanged.
 
