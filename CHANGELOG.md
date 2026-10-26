@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Reject duplicate JSON fields in report/schedule configuration at every object depth instead of silently choosing the last value. Ambiguous privacy settings cannot enable text previews or rewrite scheduling config; preserve the original config, logs and absent outputs. No timer changes or checkpoint migration.
+
 - Keep malformed non-text FileChange status unknown and record `invalid_tool_status` instead of crashing on array/object status. Preserve structured path candidates and following events, mark coverage partial, and rebuild older checkpoints with parser 0.4.7; existing logs and reports stay unchanged.
 
 - Validate completed Codex item types before set-based dispatch so malformed arrays/objects become unsupported-item gaps instead of aborting reports. Preserve following events and partial coverage; cover uncached/new/reused/legacy-version scans and bump the checkpoint parser to 0.4.6.

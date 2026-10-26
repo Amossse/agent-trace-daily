@@ -4,6 +4,8 @@ Completed Codex `FileChange` records with non-null, non-text status retain their
 
 [中文](README.zh-CN.md)
 
+Report and schedule configuration rejects duplicate JSON fields, including nested fields. Conflicting `include_text` values fail before log collection, checkpoint/output creation or schedule-config replacement. Preserve the config and restore a reviewed, unambiguous local copy before retrying; this does not create or change a native timer, and parser checkpoints need no migration.
+
 A portable Skill that reports yesterday's recorded Agent work: requests, tool executions, working directories, evidenced file operations, output candidates, failures, and a complete **normalized observable timeline**. A bundled Python helper makes collection reproducible; the Agent explains the results without replaying logged commands.
 
 Installation immediately prints an instruction to the Agent to create a daily native scheduled task, default **11:00 in the selected timezone**. Time is configurable. The installer itself does not secretly create a timer; only scheduler read-back establishes that one exists. A manual Skill folder copy requires first activation for onboarding.

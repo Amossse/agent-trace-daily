@@ -16,6 +16,31 @@ spec.loader.exec_module(trace)
 
 
 class TraceDaily(unittest.TestCase):
+    def test_ambiguous_config_cannot_enable_text_or_change_the_schedule(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source, config_path, output = root / "fictional.jsonl", root / "config.json", root / "reports"
+            source.write_text('{"timestamp":"2026-10-06T01:00:00Z","kind":"task","text":"Fictional task"}\n',
+                              encoding="utf-8")
+            config = {"version": 1, "sources": [f"jsonl:{source}"], "timezone": "UTC", "time": "11:00",
+                      "output_dir": str(output), "include_text": False, "script": str(SCRIPT),
+                      "schedule": {"status": "pending", "id": None}}
+            raw = json.dumps(config)[:-1] + ',"include_text":true}'
+            config_path.write_text(raw, encoding="utf-8")
+            before = config_path.read_bytes()
+            for action in (["report", "--date", "2026-10-06"], ["schedule", "--time", "12:00"]):
+                result = subprocess.run([sys.executable, str(SCRIPT), *action, "--config", str(config_path)],
+                                        capture_output=True)
+                self.assertEqual(result.returncode, 2)
+                self.assertEqual(config_path.read_bytes(), before)
+                self.assertFalse(output.exists())
+                self.assertFalse((root / "cache").exists())
+                self.assertNotIn(b"Fictional task", result.stderr)
+                self.assertNotIn(str(config_path).encode(), result.stderr)
+                self.assertNotIn(b"Traceback", result.stderr)
+            config_path.write_text(json.dumps(config), encoding="utf-8")
+            self.assertEqual(trace.load_config(config_path), config)
+
     def test_non_text_file_change_status_keeps_paths_but_not_success(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
