@@ -97,6 +97,8 @@ Default scans cover all configured files and bytes, with a 64 MiB per-record cei
 
 ## Test and contribute
 
+Incremental checkpoints with duplicate JSON fields, including nested fields, rebuild from the configured source instead of choosing the last value. Regression checks cover duplicate version/offset fields, unchanged source bytes and later valid reuse. Prior reports are not rewritten; this is ambiguity detection, not proof that an otherwise valid checkpoint is authentic.
+
 ```sh
 python -m unittest discover -s tests -v
 ```

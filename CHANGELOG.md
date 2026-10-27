@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Reject duplicate JSON fields in incremental checkpoints at every depth and rebuild from the configured source rather than reusing ambiguous cached evidence. Cover duplicate version/offset fields, unchanged source bytes and subsequent valid reuse; no source/report mutation or cache authenticity guarantee.
+
 - Reject duplicate JSON fields in report/schedule configuration at every object depth instead of silently choosing the last value. Ambiguous privacy settings cannot enable text previews or rewrite scheduling config; preserve the original config, logs and absent outputs. No timer changes or checkpoint migration.
 
 - Keep malformed non-text FileChange status unknown and record `invalid_tool_status` instead of crashing on array/object status. Preserve structured path candidates and following events, mark coverage partial, and rebuild older checkpoints with parser 0.4.7; existing logs and reports stay unchanged.

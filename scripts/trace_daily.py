@@ -493,7 +493,7 @@ def cached_normalize(provider, path, source_id, budget, gaps, start, end, cache_
     state = {}
     verified_bytes = 0
     try:
-        saved = json.loads(cache_path.read_text())
+        saved = json.loads(cache_path.read_text(), object_pairs_hook=unique_object)
         if (saved.get("version") == CACHE_VERSION and saved.get("identity") == [current.st_dev, current.st_ino]
                 and 0 <= saved["state"]["offset"] <= current.st_size):
             offset = saved["state"]["offset"]

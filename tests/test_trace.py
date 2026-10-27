@@ -16,6 +16,30 @@ spec.loader.exec_module(trace)
 
 
 class TraceDaily(unittest.TestCase):
+    def test_duplicate_checkpoint_fields_rebuild_instead_of_reusing_ambiguity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source, cache = root / "fictional.jsonl", root / "cache"
+            source.write_text(json.dumps({"timestamp": "2026-10-06T01:00:00Z", "kind": "task",
+                                         "session_id": "fictional", "text": "Fictional task"}) + "\n",
+                              encoding="utf-8")
+            before = source.read_bytes()
+            start, end = trace.window("2026-10-06", trace.zone("UTC"))
+            sources = [f"jsonl:{source}"]
+            expected, _, _ = trace.collect(sources, start, end, 100000, 10, cache)
+            checkpoint = next(cache.glob("*.json"))
+            raw = checkpoint.read_text(encoding="utf-8")
+            for ambiguous in ('{"version":"fictional-invalid",' + raw[1:],
+                              raw.replace('"offset":', '"offset":0,"offset":', 1)):
+                checkpoint.write_text(ambiguous, encoding="utf-8")
+                events, gaps, inputs = trace.collect(sources, start, end, 100000, 10, cache)
+                self.assertEqual(inputs[0]["reused_bytes"], 0)
+                self.assertEqual(events, expected)
+                self.assertEqual(dict(gaps), {})
+                self.assertEqual(source.read_bytes(), before)
+            _, _, inputs = trace.collect(sources, start, end, 100000, 10, cache)
+            self.assertGreater(inputs[0]["reused_bytes"], 0)
+
     def test_ambiguous_config_cannot_enable_text_or_change_the_schedule(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
