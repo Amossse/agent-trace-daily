@@ -67,7 +67,12 @@ def private_write(path, text, replace=False):
         raise ValueError("output is not a regular file")
     fd, temporary = tempfile.mkstemp(prefix=".trace-", dir=path.parent)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
+        try:
+            handle = os.fdopen(fd, "w", encoding="utf-8", newline="\n")
+        except BaseException:
+            os.close(fd)  # Ownership transfers only after stream construction.
+            raise
+        with handle:
             handle.write(text)
             handle.flush()
             os.fsync(handle.fileno())

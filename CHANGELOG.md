@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Close the staged output descriptor if stream construction fails, retaining staging cleanup and existing target bytes. Cover descriptor ownership and successful retry; no parser or cache format change.
+
 - Reject duplicate JSON fields in incremental checkpoints at every depth and rebuild from the configured source rather than reusing ambiguous cached evidence. Cover duplicate version/offset fields, unchanged source bytes and subsequent valid reuse; no source/report mutation or cache authenticity guarantee.
 
 - Reject duplicate JSON fields in report/schedule configuration at every object depth instead of silently choosing the last value. Ambiguous privacy settings cannot enable text previews or rewrite scheduling config; preserve the original config, logs and absent outputs. No timer changes or checkpoint migration.

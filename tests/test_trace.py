@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 from datetime import datetime, timezone
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/trace_daily.py"
@@ -16,6 +17,37 @@ spec.loader.exec_module(trace)
 
 
 class TraceDaily(unittest.TestCase):
+    def test_write_stream_failure_closes_descriptor_and_preserves_target(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            target = root / "fictional.txt"
+            trace.private_write(target, "Fictional original")
+            original_mkstemp, opened = trace.tempfile.mkstemp, []
+
+            def track_descriptor(*args, **kwargs):
+                descriptor, name = original_mkstemp(*args, **kwargs)
+                opened.append(descriptor)
+                return descriptor, name
+
+            try:
+                with patch.object(trace.tempfile, "mkstemp", side_effect=track_descriptor), \
+                        patch.object(trace.os, "fdopen", side_effect=OSError("Fictional setup failure")):
+                    with self.assertRaises(OSError):
+                        trace.private_write(target, "Fictional replacement", replace=True)
+                self.assertEqual(len(opened), 1)
+                with self.assertRaises(OSError):
+                    os.fstat(opened[0])
+                self.assertEqual(target.read_text(encoding="utf-8"), "Fictional original")
+                self.assertEqual(list(root.glob(".trace-*")), [])
+                trace.private_write(target, "Fictional retry", replace=True)
+                self.assertEqual(target.read_text(encoding="utf-8"), "Fictional retry")
+            finally:
+                for descriptor in opened:
+                    try:
+                        os.close(descriptor)
+                    except OSError:
+                        pass
+
     def test_duplicate_checkpoint_fields_rebuild_instead_of_reusing_ambiguity(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()

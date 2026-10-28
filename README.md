@@ -1,5 +1,7 @@
 # Agent Trace Daily
 
+If staged output stream construction fails, the writer closes its descriptor and removes staging without replacing an existing target. Fault injection checks closure, preservation and retry; it does not establish crash recovery or atomic publication of all report formats together.
+
 Completed Codex `FileChange` records with non-null, non-text status retain their structured path candidates but have an unknown outcome and an `invalid_tool_status` gap. Later events remain available and coverage is partial. Parser checkpoint version 0.4.7 rebuilds older caches; source logs and existing reports are unchanged. A recorded path does not prove a successful write.
 
 [中文](README.zh-CN.md)
