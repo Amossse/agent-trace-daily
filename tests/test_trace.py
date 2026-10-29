@@ -17,6 +17,33 @@ spec.loader.exec_module(trace)
 
 
 class TraceDaily(unittest.TestCase):
+    def test_access_key_ids_are_redacted_from_reports_and_new_checkpoints(self):
+        markers = [prefix + "Q" * 16 for prefix in ("AKIA", "ASIA")]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source = root / "fictional.jsonl"
+            source.write_text(json.dumps({"timestamp": "2026-10-06T01:00:00Z", "kind": "task",
+                                          "session_id": "fictional", "text": "Fictional " + " ".join(markers)}) + "\n",
+                              encoding="utf-8")
+            before = source.read_bytes()
+            for index, extra in enumerate((["--no-cache"], [], [])):
+                output = root / f"report-{index}"
+                subprocess.run([sys.executable, str(SCRIPT), "report", "--source", f"jsonl:{source}",
+                                "--date", "2026-10-06", "--timezone", "UTC", "--include-text",
+                                "--output-dir", str(output), *extra], capture_output=True, check=True)
+                for suffix in ("json", "md", "html"):
+                    text = (output / f"2026-10-06.{suffix}").read_text(encoding="utf-8")
+                    self.assertIn("Fictional", text)
+                    for marker in markers:
+                        self.assertNotIn(marker, text)
+                if index == 2:
+                    report = json.loads((output / "2026-10-06.json").read_text(encoding="utf-8"))
+                    self.assertGreater(report["coverage"]["scan"]["reused_bytes"], 0)
+                for checkpoint in (root / "cache").glob("*.json"):
+                    for marker in markers:
+                        self.assertNotIn(marker, checkpoint.read_text(encoding="utf-8"))
+            self.assertEqual(source.read_bytes(), before)
+
     def test_write_stream_failure_closes_descriptor_and_preserves_target(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()

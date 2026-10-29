@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Redact bare long-term and temporary AWS access key IDs in previews. Cover all report formats plus uncached/new/reused checkpoint paths with constructed identifiers and unchanged source logs; no retroactive cleanup.
+
 - Close the staged output descriptor if stream construction fails, retaining staging cleanup and existing target bytes. Cover descriptor ownership and successful retry; no parser or cache format change.
 
 - Reject duplicate JSON fields in incremental checkpoints at every depth and rebuild from the configured source rather than reusing ambiguous cached evidence. Cover duplicate version/offset fields, unchanged source bytes and subsequent valid reuse; no source/report mutation or cache authenticity guarantee.

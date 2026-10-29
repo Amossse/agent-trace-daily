@@ -91,6 +91,8 @@ This prints an Agent instruction and marks `needs-update`; ask the Agent to upda
 
 ## Privacy, resource ceilings and limitations
 
+Best-effort redaction now also masks bare AWS access key IDs beginning with `AKIA` or `ASIA`. Fictional CLI regressions cover JSON/Markdown/HTML, uncached scans, new checkpoints and checkpoint reuse. Source logs, old reports and existing cache files are not retroactively cleaned; other secret formats still require human review.
+
 Structural mode is default: aliases replace session/project/file identities and text/arguments are omitted. Opt-in `--include-text` gives best-effort-redacted previews up to 1,000 characters, plus redacted paths. These are **private, not safe-for-publication exports**; previews can still contain identifying, internal, or confidential content. Raw tool outputs and base/system instructions are not copied; write contents are omitted. Command previews may contain code fragments. Review before sharing or using an external model/provider. The helper itself makes no network/model calls.
 
 POSIX outputs are created as 0600 files; new private directories are 0700. Windows confidentiality depends on directory ACLs. Symlink paths are rejected; use physical paths. This is not a hostile-filesystem sandbox, forensic audit or privacy certification. Markdown/JSON are separate atomic files, not a cross-file transaction; an I/O failure can leave one report file. Existing output is never silently overwritten. No automatic retention deletion.
