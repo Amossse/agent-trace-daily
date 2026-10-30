@@ -80,6 +80,8 @@ python /path/to/installed/agent-trace-daily/scripts/trace_daily.py report \
 
 ## 修改时间与停止
 
+配置版本必须是整数 `1`，布尔值、浮点数、字符串及不支持的值都会在扫描日志、创建报告或缓存、改写定时配置前被拒绝。请保留原文件，恢复经过核对的有效配置后再试；此校验不创建或修改真实定时任务。
+
 ```sh
 python /path/to/installed/scripts/trace_daily.py schedule \
   --config /path/to/private/config.json --time 09:30

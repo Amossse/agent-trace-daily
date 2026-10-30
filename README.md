@@ -80,6 +80,8 @@ Codex and Claude Code local JSONL are supported; other Agents can export the [ge
 
 ## Configuration and schedule changes
 
+Configuration version must be the exact integer `1`; booleans, floats, strings and unsupported values are refused before scanning logs, creating reports/cache or changing scheduling configuration. Preserve the file and restore a reviewed valid configuration before retrying; no real timer is created or changed by this validation.
+
 Private config defaults to `~/.agent-trace-daily/config.json`; reports go to its `reports` directory. Windows uses the user's home directory as well. Choose `--state-dir`/`--skill-dir` explicitly for a portable setup. Existing installations/configs are preserved; no forced upgrade. Config fields: source list, timezone, requested time, private output directory, text opt-in, installed script path and host-attested schedule ID/status. No keys, raw transcripts or databases are required.
 
 ```sh

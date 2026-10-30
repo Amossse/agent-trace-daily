@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Require exact integer configuration version 1 instead of accepting booleans or floats equal to 1. Cover report and schedule refusal without source/config/output changes and a valid report retry; no timer changes.
+
 - Redact bare long-term and temporary AWS access key IDs in previews. Cover all report formats plus uncached/new/reused checkpoint paths with constructed identifiers and unchanged source logs; no retroactive cleanup.
 
 - Close the staged output descriptor if stream construction fails, retaining staging cleanup and existing target bytes. Cover descriptor ownership and successful retry; no parser or cache format change.

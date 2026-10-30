@@ -929,7 +929,7 @@ def schedule_request(config_path, config):
 
 def load_config(path):
     config = json.loads(safe_path(path).read_text(encoding="utf-8"), object_pairs_hook=unique_object)
-    if not isinstance(config, dict) or config.get("version") != 1:
+    if not isinstance(config, dict) or type(config.get("version")) is not int or config["version"] != 1:
         raise ValueError("unsupported config")
     zone(config["timezone"])
     validate_time(config["time"])

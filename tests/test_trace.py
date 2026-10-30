@@ -17,6 +17,33 @@ spec.loader.exec_module(trace)
 
 
 class TraceDaily(unittest.TestCase):
+    def test_config_requires_an_exact_supported_integer_version(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source, config_path, output = root / "fictional.jsonl", root / "config.json", root / "reports"
+            source.write_text('{"timestamp":"2026-10-06T01:00:00Z","kind":"task","text":"Fictional task"}\n',
+                              encoding="utf-8")
+            original = source.read_bytes()
+            config = {"version": 1, "sources": [f"jsonl:{source}"], "timezone": "UTC", "time": "11:00",
+                      "output_dir": str(output), "include_text": False}
+            for version in (True, 1.0, "1", 2, None):
+                config_path.write_text(json.dumps({**config, "version": version}), encoding="utf-8")
+                before = config_path.read_bytes()
+                for action in (["report", "--date", "2026-10-06"], ["schedule", "--time", "12:00"]):
+                    result = subprocess.run([sys.executable, str(SCRIPT), *action, "--config", str(config_path)],
+                                            capture_output=True)
+                    self.assertEqual(result.returncode, 2)
+                    self.assertNotIn(b"Traceback", result.stderr)
+                    self.assertNotIn(str(config_path).encode(), result.stderr)
+                    self.assertEqual(config_path.read_bytes(), before)
+                    self.assertEqual(source.read_bytes(), original)
+                    self.assertFalse(output.exists())
+                    self.assertFalse((root / "cache").exists())
+            config_path.write_text(json.dumps(config), encoding="utf-8")
+            subprocess.run([sys.executable, str(SCRIPT), "report", "--date", "2026-10-06",
+                            "--config", str(config_path)], capture_output=True, check=True)
+            self.assertTrue((output / "2026-10-06.json").is_file())
+
     def test_access_key_ids_are_redacted_from_reports_and_new_checkpoints(self):
         markers = [prefix + "Q" * 16 for prefix in ("AKIA", "ASIA")]
         with tempfile.TemporaryDirectory() as directory:
