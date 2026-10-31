@@ -44,8 +44,9 @@ class TraceDaily(unittest.TestCase):
                             "--config", str(config_path)], capture_output=True, check=True)
             self.assertTrue((output / "2026-10-06.json").is_file())
 
-    def test_access_key_ids_are_redacted_from_reports_and_new_checkpoints(self):
+    def test_credential_identifiers_are_redacted_from_reports_and_new_checkpoints(self):
         markers = [prefix + "Q" * 16 for prefix in ("AKIA", "ASIA")]
+        markers.append("github_" + "pat_" + "Q" * 30)
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
             source = root / "fictional.jsonl"

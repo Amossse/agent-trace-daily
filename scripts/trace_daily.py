@@ -91,7 +91,7 @@ def redact(text):
     text = re.sub(r"[\x00-\x08\x0b-\x1f\x7f]", "", text)
     text = re.sub(r"-----BEGIN [^-]*PRIVATE KEY-----.*?-----END [^-]*PRIVATE KEY-----", "[private-key]", text, flags=re.S)
     text = re.sub(r"(?i)\b(?:bearer\s+\S+|(?:api[_-]?key|token|password|secret)\s*[:=]\s*[\"']?[^\s\"',;]+)", "[secret]", text)
-    text = re.sub(r"\b(?:sk-[A-Za-z0-9_-]{12,}|gh[pousr]_[A-Za-z0-9_]{12,}|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)\b", "[credential]", text)
+    text = re.sub(r"\b(?:sk-[A-Za-z0-9_-]{12,}|gh[pousr]_[A-Za-z0-9_]{12,}|github_pat_[A-Za-z0-9_]{20,}|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)\b", "[credential]", text)
     text = re.sub(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b", "[credential]", text)
     text = re.sub(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}", "[email]", text)
     text = re.sub(r"(?:https?://|www\.)[^\s<>]+", "[url]", text)
