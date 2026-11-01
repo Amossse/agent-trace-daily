@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Treat report-timezone conversion overflow as an invalid_timestamp gap while retaining following events. Rebuild older parser checkpoints with version 0.4.8; cover uncached/new/reused/legacy paths and unchanged logs.
+
 - Mask bare GitHub fine-grained personal access tokens in previews. Extend the credential regression across report formats and uncached/new/reused checkpoints using constructed tokens only; no historical cleanup.
 
 - Require exact integer configuration version 1 instead of accepting booleans or floats equal to 1. Cover report and schedule refusal without source/config/output changes and a valid report retry; no timer changes.

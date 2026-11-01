@@ -17,6 +17,38 @@ spec.loader.exec_module(trace)
 
 
 class TraceDaily(unittest.TestCase):
+    def test_report_zone_overflow_is_a_gap_and_later_events_survive(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source = root / "fictional.jsonl"
+            rows = [{"timestamp": stamp, "kind": "task", "session_id": "fictional", "text": "Fictional task"}
+                    for stamp in ("0001-01-01T00:00:00+23:59", "9999-12-31T23:59:59-23:59",
+                                  "2026-10-06T01:00:00Z")]
+            source.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+            before = source.read_bytes()
+
+            def run_report(index, extra=()):
+                output = root / f"report-{index}"
+                result = subprocess.run([sys.executable, str(SCRIPT), "report", "--source", f"jsonl:{source}",
+                                         "--date", "2026-10-06", "--timezone", "UTC", "--output-dir", str(output),
+                                         *extra], capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                data = json.loads((output / "2026-10-06.json").read_text(encoding="utf-8"))
+                self.assertEqual(data["counts"]["tasks"], 1)
+                self.assertEqual(data["coverage"]["status"], "partial")
+                self.assertEqual(data["coverage"]["gaps"]["invalid_timestamp"], 2)
+                self.assertEqual(source.read_bytes(), before)
+                return data
+
+            run_report(0)
+            self.assertGreater(run_report(1)["coverage"]["scan"]["reused_bytes"], 0)
+            run_report(2, ["--no-cache"])
+            checkpoint = next((root / "cache").glob("*.json"))
+            legacy = json.loads(checkpoint.read_text(encoding="utf-8"))
+            legacy["version"] = "0.4.7"
+            checkpoint.write_text(json.dumps(legacy), encoding="utf-8")
+            self.assertEqual(run_report(3)["coverage"]["scan"]["reused_bytes"], 0)
+
     def test_config_requires_an_exact_supported_integer_version(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()

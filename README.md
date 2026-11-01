@@ -2,7 +2,7 @@
 
 If staged output stream construction fails, the writer closes its descriptor and removes staging without replacing an existing target. Fault injection checks closure, preservation and retry; it does not establish crash recovery or atomic publication of all report formats together.
 
-Completed Codex `FileChange` records with non-null, non-text status retain their structured path candidates but have an unknown outcome and an `invalid_tool_status` gap. Later events remain available and coverage is partial. Parser checkpoint version 0.4.7 rebuilds older caches; source logs and existing reports are unchanged. A recorded path does not prove a successful write.
+Completed Codex `FileChange` records with non-null, non-text status retain their structured path candidates but have an unknown outcome and an `invalid_tool_status` gap. Later events remain available and coverage is partial. Parser checkpoint version 0.4.8 rebuilds older caches; source logs and existing reports are unchanged. A recorded path does not prove a successful write.
 
 [中文](README.zh-CN.md)
 
@@ -93,6 +93,8 @@ This prints an Agent instruction and marks `needs-update`; ask the Agent to upda
 
 ## Privacy, resource ceilings and limitations
 
+Timestamps that overflow when converted to the report timezone become `invalid_timestamp` gaps rather than aborting the report. Later events remain available and coverage is partial. Parser checkpoint 0.4.8 rebuilds older caches; regressions cover uncached/new/reused/legacy scans without changing source logs or prior reports.
+
 Best-effort redaction now also masks bare GitHub fine-grained personal access tokens (`github_pat_`). Constructed-token regressions cover all report formats and uncached/new/reused checkpoint paths. Source logs and old artifacts are not cleaned retroactively, and previews still need human review before sharing.
 
 Best-effort redaction now also masks bare AWS access key IDs beginning with `AKIA` or `ASIA`. Fictional CLI regressions cover JSON/Markdown/HTML, uncached scans, new checkpoints and checkpoint reuse. Source logs, old reports and existing cache files are not retroactively cleaned; other secret formats still require human review.
@@ -140,7 +142,7 @@ Current Codex completed command, file-change and MCP events are parsed and recon
 
 ## Cross-task dashboard (0.5.0)
 
-Completed Codex items require a text type discriminator before dispatch. Non-text types become `unsupported_codex_completed_item` gaps rather than crashing the report; later records survive, and coverage is partial. Checkpoint version 0.4.7 reparses older caches. Regression checks cover uncached, newly cached, reused and legacy-version scans without touching source logs or prior reports.
+Completed Codex items require a text type discriminator before dispatch. Non-text types become `unsupported_codex_completed_item` gaps rather than crashing the report; later records survive, and coverage is partial. Checkpoint version 0.4.8 reparses older caches. Regression checks cover uncached, newly cached, reused and legacy-version scans without touching source logs or prior reports.
 
 Valid JSON arrays/scalars inside a tool-result string are not supported result envelopes and remain unknown without explicit host status. Do not infer an exit code from their contents. Plain shell transcripts and object results retain their existing rules. Older cached outcomes rebuild; source logs and prior reports stay unchanged.
 

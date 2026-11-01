@@ -16,7 +16,7 @@ import tempfile
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 VERSION = "0.5.1"
-CACHE_VERSION = "0.4.7"  # File-change status validation must rebuild older parser checkpoints.
+CACHE_VERSION = "0.4.8"  # Report-zone timestamp validation must rebuild older checkpoints.
 MAX_LINE = 64 * 1024 * 1024
 KINDS = {"task", "tool", "summary", "artifact"}
 STATUSES = {"succeeded", "failed", "unknown", "attempted"}
@@ -287,12 +287,13 @@ def normalize(provider, path, source_id, budget, gaps, start=None, end=None, sta
             continue
         try:
             when = stamp(raw_time)
+            if start is not None:
+                day = when.astimezone(start.tzinfo).date().isoformat()
         except (ValueError, OverflowError):
             gaps["invalid_timestamp"] += 1
             continue
         # Timestamped parser gaps concern the report day; undated/I/O gaps concern the scan.
         if state is not None:
-            day = when.astimezone(start.tzinfo).date().isoformat()
             gaps = Counter(state.setdefault("day_gaps", {}).get(day, {}))
             state["day_gaps"][day] = gaps
         elif start is not None and not start <= when < end:
