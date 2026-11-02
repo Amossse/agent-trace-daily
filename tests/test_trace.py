@@ -17,6 +17,37 @@ spec.loader.exec_module(trace)
 
 
 class TraceDaily(unittest.TestCase):
+    def test_long_shell_exit_codes_do_not_abort_following_events(self):
+        for digits, expected in (("9" * 5000, "failed"), ("0" * 5000, "succeeded"),
+                                 ("-" + "0" * 5000 + "1", "failed"),
+                                 ("\u0660" * 5000, "succeeded"), ("\u0663", "failed")):
+            self.assertEqual(trace.success("Process exited with code " + digits), expected)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source = root / "fictional.jsonl"
+            rows = [{"timestamp": "2026-10-06T00:59:00Z", "type": "response_item",
+                     "payload": {"type": "function_call", "call_id": "fictional", "name": "exec_command",
+                                 "arguments": "{}"}},
+                    {"timestamp": "2026-10-06T01:00:00Z", "type": "response_item",
+                     "payload": {"type": "function_call_output", "call_id": "fictional",
+                                 "output": "Process exited with code " + "9" * 5000}},
+                    {"timestamp": "2026-10-06T01:01:00Z", "type": "event_msg",
+                     "payload": {"type": "user_message", "message": "Fictional following task"}}]
+            source.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+            before = source.read_bytes()
+            for index, extra in enumerate((["--no-cache"], [], [])):
+                output = root / f"report-{index}"
+                result = subprocess.run([sys.executable, str(SCRIPT), "report", "--source", f"codex:{source}",
+                                         "--date", "2026-10-06", "--timezone", "UTC", "--output-dir", str(output),
+                                         *extra], capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                data = json.loads((output / "2026-10-06.json").read_text(encoding="utf-8"))
+                self.assertEqual(data["counts"]["tasks"], 1)
+                self.assertEqual(data["counts"]["failed_tools"], 1)
+                if index == 2:
+                    self.assertGreater(data["coverage"]["scan"]["reused_bytes"], 0)
+                self.assertEqual(source.read_bytes(), before)
+
     def test_report_zone_overflow_is_a_gap_and_later_events_survive(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()

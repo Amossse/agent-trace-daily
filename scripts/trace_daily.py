@@ -16,7 +16,7 @@ import tempfile
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 VERSION = "0.5.1"
-CACHE_VERSION = "0.4.8"  # Report-zone timestamp validation must rebuild older checkpoints.
+CACHE_VERSION = "0.4.9"  # Rebuild older checkpoints with long exit-code classification.
 MAX_LINE = 64 * 1024 * 1024
 KINDS = {"task", "tool", "summary", "artifact"}
 STATUSES = {"succeeded", "failed", "unknown", "attempted"}
@@ -137,7 +137,8 @@ def success(output, explicit_error=None, gaps=None):
         pass
     match = re.search(r"(?:Process exited with code|exit_code[\"']?\s*:)\s*(-?\d+)(?![\w.])", text)
     if match:
-        return "succeeded" if int(match[1]) == 0 else "failed"
+        # Convert one digit at a time: retain Unicode decimals without the int length limit.
+        return "succeeded" if all(int(digit) == 0 for digit in match[1].lstrip("-")) else "failed"
     if text.startswith("Success. Updated the following files:"):
         return "succeeded"
     if re.search(r"(?:Script error:|Error executing tool|isError[\"']?\s*:\s*true)", text):

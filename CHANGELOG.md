@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Classify decimal transcript exit codes one digit at a time, avoiding integer digit-limit crashes while preserving Unicode decimal and zero/nonzero outcomes. Rebuild parser checkpoints with 0.4.9; cover following events and uncached/new/reused scans using fictional logs.
+
 - Treat report-timezone conversion overflow as an invalid_timestamp gap while retaining following events. Rebuild older parser checkpoints with version 0.4.8; cover uncached/new/reused/legacy paths and unchanged logs.
 
 - Mask bare GitHub fine-grained personal access tokens in previews. Extend the credential regression across report formats and uncached/new/reused checkpoints using constructed tokens only; no historical cleanup.
