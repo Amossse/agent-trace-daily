@@ -17,6 +17,29 @@ spec.loader.exec_module(trace)
 
 
 class TraceDaily(unittest.TestCase):
+    def test_mixed_case_home_paths_are_redacted_from_reports_and_checkpoints(self):
+        marker = "fictional-home"
+        text = f"c:\\uSeRs\\{marker}\\notes.txt /uSeRs/{marker}/notes.txt"
+        self.assertNotIn(marker, trace.redact(text))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source = root / "fictional.jsonl"
+            source.write_text(json.dumps({"timestamp": "2026-10-06T01:00:00Z", "kind": "task",
+                                          "session_id": "fictional", "text": text}) + "\n", encoding="utf-8")
+            before = source.read_bytes()
+            for index, extra in enumerate((["--no-cache"], [], [])):
+                output = root / f"report-{index}"
+                result = subprocess.run([sys.executable, str(SCRIPT), "report", "--source", f"jsonl:{source}",
+                                         "--date", "2026-10-06", "--timezone", "UTC", "--include-text",
+                                         "--output-dir", str(output), *extra], capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                for path in list(output.glob("*")) + list((root / "cache").glob("*.json")):
+                    self.assertNotIn(marker, path.read_text(encoding="utf-8"))
+                if index == 2:
+                    data = json.loads((output / "2026-10-06.json").read_text(encoding="utf-8"))
+                    self.assertGreater(data["coverage"]["scan"]["reused_bytes"], 0)
+                self.assertEqual(source.read_bytes(), before)
+
     def test_long_shell_exit_codes_do_not_abort_following_events(self):
         for digits, expected in (("9" * 5000, "failed"), ("0" * 5000, "succeeded"),
                                  ("-" + "0" * 5000 + "1", "failed"),
