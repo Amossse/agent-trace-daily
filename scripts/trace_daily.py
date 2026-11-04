@@ -16,7 +16,7 @@ import tempfile
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 VERSION = "0.5.1"
-CACHE_VERSION = "0.4.10"  # Rebuild previews with case-insensitive home-path redaction.
+CACHE_VERSION = "0.4.11"  # Rebuild previews with escaped Windows home-path redaction.
 MAX_LINE = 64 * 1024 * 1024
 KINDS = {"task", "tool", "summary", "artifact"}
 STATUSES = {"succeeded", "failed", "unknown", "attempted"}
@@ -95,7 +95,7 @@ def redact(text):
     text = re.sub(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b", "[credential]", text)
     text = re.sub(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}", "[email]", text)
     text = re.sub(r"(?:https?://|www\.)[^\s<>]+", "[url]", text)
-    text = re.sub(r"(?:/Users/|/home/)[^/\s]+|[A-Za-z]:[\\/]Users[\\/][^\\/\s]+", "[home]", text, flags=re.I)
+    text = re.sub(r"(?:/Users/|/home/)[^/\s]+|[A-Za-z]:[\\/]+Users[\\/]+[^\\/\s]+", "[home]", text, flags=re.I)
     # Markdown is plain text here: prevent injected links/headings from rendering.
     return text.replace("\n", " ").replace("\r", " ").replace("`", "'").replace("[", "(").replace("]", ")").replace("<", "(").replace(">", ")")
 

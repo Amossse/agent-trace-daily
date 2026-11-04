@@ -17,9 +17,16 @@ spec.loader.exec_module(trace)
 
 
 class TraceDaily(unittest.TestCase):
+    def test_serialized_windows_home_paths_are_redacted(self):
+        for path in (r"C:\Users\fictional-person\notes.txt", r"C:\uSeRs\fictional-person\notes.txt"):
+            for preview in (path, json.dumps({"path": path}), repr({"path": path})):
+                self.assertNotIn("fictional-person", trace.redact(preview))
+                self.assertIn("notes.txt", trace.redact(preview))
+
     def test_mixed_case_home_paths_are_redacted_from_reports_and_checkpoints(self):
         marker = "fictional-home"
         text = f"c:\\uSeRs\\{marker}\\notes.txt /uSeRs/{marker}/notes.txt"
+        text += " " + json.dumps({"path": text.split()[0]})
         self.assertNotIn(marker, trace.redact(text))
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()

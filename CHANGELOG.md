@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Home-path redaction handles doubled Windows separators in serialized previews. Parser checkpoint 0.4.11 rebuilds cached previews. Review text previews before sharing.
+
 - Match conventional home-path components case-insensitively during redaction. Rebuild parser checkpoints with 0.4.10; cover report formats and uncached/new/reused previews using fictional paths only, without historical log/report cleanup.
 
 - Classify decimal transcript exit codes one digit at a time, avoiding integer digit-limit crashes while preserving Unicode decimal and zero/nonzero outcomes. Rebuild parser checkpoints with 0.4.9; cover following events and uncached/new/reused scans using fictional logs.
