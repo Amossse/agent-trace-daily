@@ -91,6 +91,8 @@ python /path/to/installed/scripts/trace_daily.py schedule \
 
 ## 隐私、限制与贡献
 
+报告和定时配置必须是普通文件，上限为 256 KiB。
+
 
 预览脱敏支持序列化后含双反斜杠的 Windows 用户目录。解析缓存 0.4.11 会重建预览，分享前仍需复核。
 

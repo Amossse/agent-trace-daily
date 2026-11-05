@@ -93,6 +93,8 @@ This prints an Agent instruction and marks `needs-update`; ask the Agent to upda
 
 ## Privacy, resource ceilings and limitations
 
+Report and schedule configuration inputs must be regular files no larger than 256 KiB.
+
 
 Home-path redaction handles doubled Windows separators in serialized previews. Parser checkpoint 0.4.11 rebuilds cached previews. Review text previews before sharing.
 

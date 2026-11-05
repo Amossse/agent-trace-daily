@@ -17,6 +17,19 @@ spec.loader.exec_module(trace)
 
 
 class TraceDaily(unittest.TestCase):
+    def test_config_rejects_oversized_files_before_json_parsing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory).resolve() / "fictional-config.json"
+            config = {"version": 1, "timezone": "+00:00", "time": "11:00",
+                      "sources": ["jsonl:fictional.jsonl"], "output_dir": "fictional-report",
+                      "include_text": False}
+            raw = json.dumps(config)
+            path.write_text(raw + " " * (256 * 1024), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "config exceeds"):
+                trace.load_config(path)
+            path.write_text(raw, encoding="utf-8")
+            self.assertEqual(trace.load_config(path), config)
+
     def test_serialized_windows_home_paths_are_redacted(self):
         for path in (r"C:\Users\fictional-person\notes.txt", r"C:\uSeRs\fictional-person\notes.txt"):
             for preview in (path, json.dumps({"path": path}), repr({"path": path})):

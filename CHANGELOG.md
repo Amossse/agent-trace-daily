@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Report and schedule configuration inputs must be regular files no larger than 256 KiB.
+
 - Home-path redaction handles doubled Windows separators in serialized previews. Parser checkpoint 0.4.11 rebuilds cached previews. Review text previews before sharing.
 
 - Match conventional home-path components case-insensitively during redaction. Rebuild parser checkpoints with 0.4.10; cover report formats and uncached/new/reused previews using fictional paths only, without historical log/report cleanup.

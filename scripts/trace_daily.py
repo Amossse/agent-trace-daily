@@ -930,7 +930,19 @@ def schedule_request(config_path, config):
 
 
 def load_config(path):
-    config = json.loads(safe_path(path).read_text(encoding="utf-8"), object_pairs_hook=unique_object)
+    limit = 256 * 1024
+    flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
+    descriptor = os.open(safe_path(path), flags)
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise ValueError("config must be a regular file")
+        with os.fdopen(descriptor, "rb", closefd=False) as stream:
+            raw = stream.read(limit + 1)
+    finally:
+        os.close(descriptor)
+    if len(raw) > limit:
+        raise ValueError("config exceeds 256 KiB")
+    config = json.loads(raw.decode("utf-8"), object_pairs_hook=unique_object)
     if not isinstance(config, dict) or type(config.get("version")) is not int or config["version"] != 1:
         raise ValueError("unsupported config")
     zone(config["timezone"])
