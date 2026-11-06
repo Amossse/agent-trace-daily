@@ -2,6 +2,7 @@
 """Read authorized JSONL logs, never execute their contents. Python 3.11+."""
 import argparse
 from collections import Counter, defaultdict
+from contextlib import ExitStack
 from datetime import date, datetime, time, timedelta, timezone
 import hashlib
 from html import escape
@@ -195,9 +196,17 @@ def records(path, budget, gaps, cursor=None):
         if not stat.S_ISREG(path.stat().st_mode):
             gaps["non_regular_file"] += 1
             return
-        size = path.stat().st_size
-        consumed = cursor.get("offset", 0) if cursor is not None else 0
-        with path.open("rb") as handle:
+        with ExitStack() as stack:
+            flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
+            descriptor = os.open(path, flags)
+            stack.callback(os.close, descriptor)
+            metadata = os.fstat(descriptor)
+            if not stat.S_ISREG(metadata.st_mode):
+                gaps["non_regular_file"] += 1
+                return
+            size = metadata.st_size
+            consumed = cursor.get("offset", 0) if cursor is not None else 0
+            handle = stack.enter_context(os.fdopen(descriptor, "rb", closefd=False))
             handle.seek(consumed)
             number = cursor.get("line", 0) if cursor is not None else 0
             while consumed < size:
@@ -483,7 +492,13 @@ def normalize(provider, path, source_id, budget, gaps, start=None, end=None, sta
 def prefix_digest(path, size):
     """Validate exact cached bytes, including in-place edits before an append."""
     digest = hashlib.sha256()
-    with safe_path(path).open("rb") as handle:
+    with ExitStack() as stack:
+        flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
+        descriptor = os.open(safe_path(path), flags)
+        stack.callback(os.close, descriptor)
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise ValueError("source must be a regular file")
+        handle = stack.enter_context(os.fdopen(descriptor, "rb", closefd=False))
         remaining = size
         while remaining:
             block = handle.read(min(1024 * 1024, remaining))

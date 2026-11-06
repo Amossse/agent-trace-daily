@@ -17,6 +17,44 @@ spec.loader.exec_module(trace)
 
 
 class TraceDaily(unittest.TestCase):
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "POSIX FIFO check")
+    def test_cache_prefix_fifo_is_rejected_without_waiting(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory).resolve() / "fictional.pipe"
+            os.mkfifo(source)
+            code = """import runpy, sys
+runtime = runpy.run_path(sys.argv[1])
+try:
+    runtime["prefix_digest"](sys.argv[2], 0)
+except ValueError:
+    raise SystemExit(0)
+raise SystemExit(1)
+"""
+            result = subprocess.run([sys.executable, "-c", code, str(SCRIPT), str(source)],
+                                    capture_output=True, timeout=5)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn(str(source).encode(), result.stderr)
+
+    def test_log_read_rejects_the_opened_non_regular_descriptor(self):
+        from collections import Counter
+        from types import SimpleNamespace
+        import stat
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory).resolve() / "fictional.jsonl"
+            original = b'{"fictional":true}\n'
+            path.write_bytes(original)
+            gaps = Counter()
+            budget = [4096]
+            with patch.object(trace.os, "fstat", return_value=SimpleNamespace(st_mode=stat.S_IFIFO, st_size=0)):
+                self.assertEqual(list(trace.records(path, budget, gaps)), [])
+            with patch.object(trace.os, "fstat", return_value=SimpleNamespace(st_mode=stat.S_IFIFO)):
+                with self.assertRaisesRegex(ValueError, "regular"):
+                    trace.prefix_digest(path, len(original))
+            self.assertEqual(gaps["non_regular_file"], 1)
+            self.assertEqual(budget, [4096])
+            self.assertEqual(path.read_bytes(), original)
+            self.assertEqual(len(list(trace.records(path, [4096], Counter()))), 1)
+
     def test_config_rejects_oversized_files_before_json_parsing(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory).resolve() / "fictional-config.json"

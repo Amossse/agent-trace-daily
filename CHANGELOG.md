@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Log scanning and cache-prefix verification check opened descriptors and use nonblocking opens where supported. Scanning takes its size from the descriptor, and nonregular logs become coverage gaps.
+
 - Report and schedule configuration inputs must be regular files no larger than 256 KiB.
 
 - Home-path redaction handles doubled Windows separators in serialized previews. Parser checkpoint 0.4.11 rebuilds cached previews. Review text previews before sharing.

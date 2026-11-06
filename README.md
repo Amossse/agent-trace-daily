@@ -93,6 +93,8 @@ This prints an Agent instruction and marks `needs-update`; ask the Agent to upda
 
 ## Privacy, resource ceilings and limitations
 
+Log scanning and cache-prefix verification check opened descriptors and use nonblocking opens where supported. Scanning takes its size from the descriptor, and nonregular logs become coverage gaps.
+
 Report and schedule configuration inputs must be regular files no larger than 256 KiB.
 
 
