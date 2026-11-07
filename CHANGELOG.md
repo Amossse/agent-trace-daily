@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Checkpoint coverage counters must be objects of nonnegative integer counts, including per-day counters. Invalid counters discard the checkpoint and rebuild from the configured source; this does not authenticate otherwise valid local cache content.
+
 - Log scanning and cache-prefix verification check opened descriptors and use nonblocking opens where supported. Scanning takes its size from the descriptor, and nonregular logs become coverage gaps.
 
 - Report and schedule configuration inputs must be regular files no larger than 256 KiB.

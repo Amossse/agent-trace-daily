@@ -12,6 +12,8 @@ A portable Skill that reports yesterday's recorded Agent work: requests, tool ex
 
 Installation immediately prints an instruction to the Agent to create a daily native scheduled task, default **11:00 in the selected timezone**. Time is configurable. The installer itself does not secretly create a timer; only scheduler read-back establishes that one exists. A manual Skill folder copy requires first activation for onboarding.
 
+Checkpoint coverage counters must be objects of nonnegative integer counts, including per-day counters. Invalid counters discard the checkpoint and rebuild from the configured source; this does not authenticate otherwise valid local cache content.
+
 ## Install
 
 Python 3.11+. Linux/macOS normally have IANA timezone data; Windows may need `python -m pip install tzdata`. Fixed offsets such as `+08:00` work without a timezone database but do not adapt to daylight saving. The report helper does not need model APIs, network access, or third-party packages other than optional timezone data.
